@@ -15,6 +15,7 @@ setup(
     version="1.0.0",
     description="Facebook AI Research Open Domain Q&A Toolkit",
     url="https://github.com/facebookresearch/DPR/",
+    py_modules=[],
     classifiers=[
         "Intended Audience :: Science/Research",
         "License :: OSI Approved :: MIT License",
