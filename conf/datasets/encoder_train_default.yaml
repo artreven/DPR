@@ -43,3 +43,15 @@ curatedtrec_train:
 curatedtrec_dev:
   _target_: dpr.data.biencoder_data.JsonQADataset
   file: data.retriever.curatedtrec-dev
+  
+pphelp_dev:
+  _target_: dpr.data.biencoder_data.JsonQADataset
+  file: data.retriever.dpr_pphelp_dev
+  
+pphelp_train:
+  _target_: dpr.data.biencoder_data.JsonQADataset
+  file: data.retriever.dpr_pphelp_train
+  
+pphelp_test:
+  _target_: dpr.data.biencoder_data.JsonQADataset
+  file: data.retriever.dpr_pphelp_test
