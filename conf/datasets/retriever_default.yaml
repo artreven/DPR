@@ -33,3 +33,7 @@ curatedtrec_test:
   _target_: dpr.data.retriever_data.CsvQASrc
   file: data.retriever.qas.curatedtrec-test
 
+pphelp_test:
+  _target_: dpr.data.retriever_data.CsvQASrc
+  file: /content/drive/MyDrive/DPR/data/dpr_pphelp_test.tsv
+
