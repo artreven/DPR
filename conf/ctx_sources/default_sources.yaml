@@ -7,5 +7,5 @@ dpr_wiki:
   
 dpr_pphelp:
   _target_: dpr.data.retriever_data.CsvCtxSrc
-  file: dpr_pphelp
+  file: ./data/dpr_pphelp
   id_prefix: 'pphelp:'
