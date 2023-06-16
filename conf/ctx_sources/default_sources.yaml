@@ -4,3 +4,8 @@ dpr_wiki:
   _target_: dpr.data.retriever_data.CsvCtxSrc
   file: data.wikipedia_split.psgs_w100
   id_prefix: 'wiki:'
+  
+dpr_pphelp:
+  _target_: dpr.data.retriever_data.CsvCtxSrc
+  file: data.dpr_pphelp
+  id_prefix: 'pphelp:'
