@@ -1,7 +1,7 @@
 # @package _group_
 
-batch_size: 2
-dev_batch_size: 4
+batch_size: 4
+dev_batch_size: 8
 adam_eps: 1e-8
 adam_betas: (0.9, 0.999)
 max_grad_norm: 1.0
@@ -20,7 +20,7 @@ gradient_accumulation_steps: 1
 num_train_epochs: 40
 eval_per_epoch: 1
 hard_negatives: 1
-other_negatives: 0
+other_negatives: 1
 val_av_rank_hard_neg: 30
 val_av_rank_other_neg: 30
 val_av_rank_bsz: 128
