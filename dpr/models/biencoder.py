@@ -27,6 +27,7 @@ from dpr.utils.model_utils import CheckpointState
 logger = logging.getLogger(__name__)
 
 BiEncoderBatch = collections.namedtuple(
+    #fixme add position embeddings here
     "BiENcoderInput",
     [
         "question_ids",
@@ -81,6 +82,7 @@ class BiEncoder(nn.Module):
         ids: T,
         segments: T,
         attn_mask: T,
+        #fixme position_ids: T,
         fix_encoder: bool = False,
         representation_token_pos=0,
     ) -> (T, T, T):
@@ -95,6 +97,8 @@ class BiEncoder(nn.Module):
                         segments,
                         attn_mask,
                         representation_token_pos=representation_token_pos,
+                        #fixme position_ids = position_ids,
+
                     )
 
                 if sub_model.training:
@@ -106,6 +110,7 @@ class BiEncoder(nn.Module):
                     segments,
                     attn_mask,
                     representation_token_pos=representation_token_pos,
+                    #fixme position_ids = position_ids,
                 )
 
         return sequence_output, pooled_output, hidden_states
@@ -115,9 +120,11 @@ class BiEncoder(nn.Module):
         question_ids: T,
         question_segments: T,
         question_attn_mask: T,
+        #fixme question_position_ids,
         context_ids: T,
         ctx_segments: T,
         ctx_attn_mask: T,
+        #fixme ctx_position_ids,
         encoder_type: str = None,
         representation_token_pos=0,
     ) -> Tuple[T, T]:
@@ -127,13 +134,19 @@ class BiEncoder(nn.Module):
             question_ids,
             question_segments,
             question_attn_mask,
+            #fixme question_position_ids,
             self.fix_q_encoder,
             representation_token_pos=representation_token_pos,
         )
 
         ctx_encoder = self.ctx_model if encoder_type is None or encoder_type == "ctx" else self.question_model
         _ctx_seq, ctx_pooled_out, _ctx_hidden = self.get_representation(
-            ctx_encoder, context_ids, ctx_segments, ctx_attn_mask, self.fix_ctx_encoder
+            ctx_encoder,
+            context_ids,
+            ctx_segments,
+            ctx_attn_mask,
+            #fixme ctx_position_ids,
+            self.fix_ctx_encoder,
         )
 
         return q_pooled_out, ctx_pooled_out
@@ -142,6 +155,7 @@ class BiEncoder(nn.Module):
         self,
         samples: List[BiEncoderSample],
         tensorizer: Tensorizer,
+        # fixme expect extractor?
         insert_title: bool,
         num_hard_negatives: int = 0,
         num_other_negatives: int = 0,
@@ -229,6 +243,7 @@ class BiEncoder(nn.Module):
 
         ctx_segments = torch.zeros_like(ctxs_tensor)
         question_segments = torch.zeros_like(questions_tensor)
+        # fixme generate position embeddings for training
 
         return BiEncoderBatch(
             questions_tensor,

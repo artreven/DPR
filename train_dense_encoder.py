@@ -371,6 +371,7 @@ class BiEncoderTrainer(object):
                 q_attn_mask = self.tensorizer.get_attn_mask(q_ids)
                 ctx_attn_mask = self.tensorizer.get_attn_mask(ctx_ids_batch)
                 with torch.no_grad():
+                    #fixme provide position embeddings
                     q_dense, ctx_dense = self.biencoder(
                         q_ids,
                         q_segments,
@@ -705,6 +706,7 @@ def _do_biencoder_fwd_pass(
             input.question_ids,
             input.question_segments,
             q_attn_mask,
+            #fixme provide position embeddings from biencoder batch
             input.context_ids,
             input.ctx_segments,
             ctx_attn_mask,

@@ -10,7 +10,8 @@ Encoder model wrappers based on HuggingFace code
 """
 
 import logging
-from typing import Tuple, List
+from typing import Tuple, List, Optional
+import numpy as np
 
 import torch
 import transformers
@@ -21,12 +22,12 @@ from torch import nn
 if transformers.__version__.startswith("4"):
     from transformers import BertConfig, BertModel
     from transformers import AdamW
-    from transformers import BertTokenizer
+    from transformers import BertTokenizer, BertTokenizerFast
     from transformers import RobertaTokenizer
 else:
     from transformers.modeling_bert import BertConfig, BertModel
     from transformers.optimization import AdamW
-    from transformers.tokenization_bert import BertTokenizer
+    from transformers.tokenization_bert import BertTokenizer, BertTokenizerFast
     from transformers.tokenization_roberta import RobertaTokenizer
 
 from dpr.utils.data_utils import Tensorizer
@@ -35,7 +36,7 @@ from .reader import Reader
 
 logger = logging.getLogger(__name__)
 
-
+#fixme add BERTWithConcepts?
 def get_bert_biencoder_components(cfg, inference_only: bool = False, **kwargs):
     dropout = cfg.encoder.dropout if hasattr(cfg.encoder, "dropout") else 0.0
     question_encoder = HFBertEncoder.init_encoder(
@@ -188,7 +189,7 @@ def get_optimizer_grouped(
 
 
 def get_bert_tokenizer(pretrained_cfg_name: str, do_lower_case: bool = True):
-    return BertTokenizer.from_pretrained(pretrained_cfg_name, do_lower_case=do_lower_case)
+    return BertTokenizerFast.from_pretrained(pretrained_cfg_name, do_lower_case=do_lower_case)
 
 
 def get_roberta_tokenizer(pretrained_cfg_name: str, do_lower_case: bool = True):
@@ -216,7 +217,9 @@ class HFBertEncoder(BertModel):
         if pretrained:
             return cls.from_pretrained(cfg_name, config=cfg, project_dim=projection_dim, **kwargs)
         else:
-            return HFBertEncoder(cfg, project_dim=projection_dim)
+            encoder = HFBertEncoder(cfg, project_dim=projection_dim)
+            encoder.encode_proj = None #what is this for?
+            return encoder
 
     def forward(
         self,
@@ -224,12 +227,16 @@ class HFBertEncoder(BertModel):
         token_type_ids: T,
         attention_mask: T,
         representation_token_pos=0,
+        position_ids: Optional[T]=None,
+        **kwargs
     ) -> Tuple[T, ...]:
 
         out = super().forward(
             input_ids=input_ids,
             token_type_ids=token_type_ids,
             attention_mask=attention_mask,
+            position_ids=position_ids,
+            **kwargs
         )
 
         # HF >4.0 version support
@@ -250,7 +257,7 @@ class HFBertEncoder(BertModel):
                 token_type_ids=token_type_ids,
                 attention_mask=attention_mask,
             )
-            sequence_output, pooled_output = out
+            sequence_output, pooled_output, hidden_states = out
 
         if isinstance(representation_token_pos, int):
             pooled_output = sequence_output[:, representation_token_pos, :]
@@ -284,29 +291,32 @@ class BertTensorizer(Tensorizer):
         title: str = None,
         add_special_tokens: bool = True,
         apply_max_len: bool = True,
+        return_offsets = False
     ):
         text = text.strip()
         # tokenizer automatic padding is explicitly disabled since its inconsistent behavior
         # TODO: move max len to methods params?
 
         if title:
-            token_ids = self.tokenizer.encode(
+            encodings = self.tokenizer.encode_plus(
                 title,
                 text_pair=text,
                 add_special_tokens=add_special_tokens,
                 max_length=self.max_length if apply_max_len else 10000,
                 pad_to_max_length=False,
                 truncation=True,
+                return_offsets_mapping=True,
             )
         else:
-            token_ids = self.tokenizer.encode(
+            encodings = self.tokenizer.encode_plus(
                 text,
                 add_special_tokens=add_special_tokens,
                 max_length=self.max_length if apply_max_len else 10000,
                 pad_to_max_length=False,
                 truncation=True,
+                return_offsets_mapping=True,
             )
-
+        token_ids = encodings.data["input_ids"]
         seq_len = self.max_length
         if self.pad_to_max and len(token_ids) < seq_len:
             token_ids = token_ids + [self.tokenizer.pad_token_id] * (seq_len - len(token_ids))
@@ -314,6 +324,13 @@ class BertTensorizer(Tensorizer):
             token_ids = token_ids[0:seq_len] if apply_max_len else token_ids
             token_ids[-1] = self.tokenizer.sep_token_id
 
+        if return_offsets:
+            offsets = np.zeros(len(text), dtype=np.int8)
+            for token_idx, pos in enumerate(encodings['offset_mapping']):
+                if token_idx < 1:
+                    continue
+                offsets[pos[0]:pos[1]] = token_idx
+            return torch.tensor(token_ids), offsets
         return torch.tensor(token_ids)
 
     def get_pair_separator_ids(self) -> T:

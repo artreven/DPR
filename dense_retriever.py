@@ -50,6 +50,7 @@ def generate_question_vectors(
     bsz: int,
     query_token: str = None,
     selector: RepTokenSelector = None,
+    #fixme add extractor
 ) -> T:
     n = len(questions)
     query_vectors = []
@@ -70,6 +71,7 @@ def generate_question_vectors(
                 batch_tensors = [q for q in batch_questions]
             else:
                 batch_tensors = [tensorizer.text_to_tensor(q) for q in batch_questions]
+            #fixme generate positions with extractor
 
             # TODO: this only works for Wav2vec pipeline but will crash the regular text pipeline
             # max_vector_len = max(q_t.size(1) for q_t in batch_tensors)
@@ -83,6 +85,7 @@ def generate_question_vectors(
             q_ids_batch = torch.stack(batch_tensors, dim=0).cuda()
             q_seg_batch = torch.zeros_like(q_ids_batch).cuda()
             q_attn_mask = tensorizer.get_attn_mask(q_ids_batch)
+            #fixme generate position embeddings batch?
 
             if selector:
                 rep_positions = selector.get_positions(q_ids_batch, tensorizer)
@@ -92,6 +95,7 @@ def generate_question_vectors(
                     q_ids_batch,
                     q_seg_batch,
                     q_attn_mask,
+                    #fixme provide position embeddings batch
                     representation_token_pos=rep_positions,
                 )
             else:
@@ -110,6 +114,7 @@ def generate_question_vectors(
 
 class DenseRetriever(object):
     def __init__(self, question_encoder: nn.Module, batch_size: int, tensorizer: Tensorizer):
+        #fixme add extractor
         self.question_encoder = question_encoder
         self.batch_size = batch_size
         self.tensorizer = tensorizer
@@ -124,6 +129,7 @@ class DenseRetriever(object):
             self.tensorizer,
             questions,
             bsz,
+            #fixme add extractor
             query_token=query_token,
             selector=self.selector,
         )
