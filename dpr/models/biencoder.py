@@ -21,19 +21,21 @@ from torch import Tensor as T
 from torch import nn
 
 from dpr.data.biencoder_data import BiEncoderSample
+from dpr.knowledge_infusion.extractors import AbstractEntityExtractor
 from dpr.utils.data_utils import Tensorizer
 from dpr.utils.model_utils import CheckpointState
 
 logger = logging.getLogger(__name__)
 
 BiEncoderBatch = collections.namedtuple(
-    #fixme add position embeddings here
     "BiENcoderInput",
     [
         "question_ids",
         "question_segments",
+        "question_positions",
         "context_ids",
         "ctx_segments",
+        "ctx_positions",
         "is_positive",
         "hard_negatives",
         "encoder_type",
@@ -69,12 +71,14 @@ class BiEncoder(nn.Module):
         ctx_model: nn.Module,
         fix_q_encoder: bool = False,
         fix_ctx_encoder: bool = False,
+        entity_extractor: AbstractEntityExtractor = None,
     ):
         super(BiEncoder, self).__init__()
         self.question_model = question_model
         self.ctx_model = ctx_model
         self.fix_q_encoder = fix_q_encoder
         self.fix_ctx_encoder = fix_ctx_encoder
+        self.extractor = entity_extractor
 
     @staticmethod
     def get_representation(
@@ -82,7 +86,7 @@ class BiEncoder(nn.Module):
         ids: T,
         segments: T,
         attn_mask: T,
-        #fixme position_ids: T,
+        position_ids: T,
         fix_encoder: bool = False,
         representation_token_pos=0,
     ) -> (T, T, T):
@@ -97,7 +101,7 @@ class BiEncoder(nn.Module):
                         segments,
                         attn_mask,
                         representation_token_pos=representation_token_pos,
-                        #fixme position_ids = position_ids,
+                        position_ids = position_ids,
 
                     )
 
@@ -110,7 +114,7 @@ class BiEncoder(nn.Module):
                     segments,
                     attn_mask,
                     representation_token_pos=representation_token_pos,
-                    #fixme position_ids = position_ids,
+                    position_ids = position_ids,
                 )
 
         return sequence_output, pooled_output, hidden_states
@@ -120,11 +124,11 @@ class BiEncoder(nn.Module):
         question_ids: T,
         question_segments: T,
         question_attn_mask: T,
-        #fixme question_position_ids,
+        question_position_ids, # fixme type?
         context_ids: T,
         ctx_segments: T,
         ctx_attn_mask: T,
-        #fixme ctx_position_ids,
+        ctx_position_ids, # fixme type?
         encoder_type: str = None,
         representation_token_pos=0,
     ) -> Tuple[T, T]:
@@ -134,7 +138,7 @@ class BiEncoder(nn.Module):
             question_ids,
             question_segments,
             question_attn_mask,
-            #fixme question_position_ids,
+            question_position_ids,
             self.fix_q_encoder,
             representation_token_pos=representation_token_pos,
         )
@@ -145,7 +149,7 @@ class BiEncoder(nn.Module):
             context_ids,
             ctx_segments,
             ctx_attn_mask,
-            #fixme ctx_position_ids,
+            ctx_position_ids,
             self.fix_ctx_encoder,
         )
 
@@ -155,7 +159,6 @@ class BiEncoder(nn.Module):
         self,
         samples: List[BiEncoderSample],
         tensorizer: Tensorizer,
-        # fixme expect extractor?
         insert_title: bool,
         num_hard_negatives: int = 0,
         num_other_negatives: int = 0,
@@ -163,6 +166,7 @@ class BiEncoder(nn.Module):
         shuffle_positives: bool = False,
         hard_neg_fallback: bool = True,
         query_token: str = None,
+        use_concepts: bool = False
     ) -> BiEncoderBatch:
         """
         Creates a batch of the biencoder training tuple.
@@ -176,9 +180,14 @@ class BiEncoder(nn.Module):
         :return: BiEncoderBatch tuple
         """
         question_tensors = []
+        question_offsets = []
         ctx_tensors = []
+        ctx_offsets = []
         positive_ctx_indices = []
         hard_neg_ctx_indices = []
+        additional_tens_ttt_parameter = {}
+        if use_concepts:
+            additional_tens_ttt_parameter["return_offsets"] = True
 
         for sample in samples:
             # ctx+ & [ctx-] composition
@@ -211,12 +220,31 @@ class BiEncoder(nn.Module):
 
             current_ctxs_len = len(ctx_tensors)
 
-            sample_ctxs_tensors = [
-                tensorizer.text_to_tensor(ctx.text, title=ctx.title if (insert_title and ctx.title) else None)
-                for ctx in all_ctxs
-            ]
+            for ctx in all_ctxs:
+                output = tensorizer.text_to_tensor(ctx.text,
+                                                            title=ctx.title if (insert_title and ctx.title) else None,
+                                                            **additional_tens_ttt_parameter)
+                if self.extractor is not None and use_concepts:
+                    assert(isinstance(output, tuple))
+                    tensor, offsets = output
+                    maxlen = tensorizer.max_length
+                    concepts = self.extractor.extract_no_overlap(ctx.text) #fixme is it correct to only process the text, not the title
+                    if len(concepts)==0:
+                        positions = None
+                    else:
+                        tensor, positions = self._add_possitions(ctx.text, #fixme this function is not implemented yet!
+                                                                 tensor,
+                                                                 offsets,
+                                                                 concepts,
+                                                                 maxlen
+                                                                 )
+                    ctx_tensors.append(tensor)
+                    ctx_offsets.append(positions)
 
-            ctx_tensors.extend(sample_ctxs_tensors)
+                else:
+                    ctx_tensors.append(output)
+
+
             positive_ctx_indices.append(current_ctxs_len)
             hard_neg_ctx_indices.append(
                 [
@@ -231,25 +259,55 @@ class BiEncoder(nn.Module):
             if query_token:
                 # TODO: tmp workaround for EL, remove or revise
                 if query_token == "[START_ENT]":
+                    #fixme update to get offsets?
                     query_span = _select_span_with_token(question, tensorizer, token_str=query_token)
                     question_tensors.append(query_span)
                 else:
-                    question_tensors.append(tensorizer.text_to_tensor(" ".join([query_token, question])))
+                    output = tensorizer.text_to_tensor(" ".join([query_token, question]), **additional_tens_ttt_parameter)
+                    if isinstance(output, tuple):
+                        tensor, offsets = output
+                        question_tensors.append(tensor)
+                        question_offsets.append(offsets)
+                    else:
+                        question_tensors.append(output)
             else:
-                question_tensors.append(tensorizer.text_to_tensor(question))
+                output = tensorizer.text_to_tensor(question, **additional_tens_ttt_parameter)
+                if self.extractor is not None and use_concepts:
+                    assert(isinstance(output, tuple))
+                    tensor, offsets = output
+                    maxlen = tensorizer.max_length
+                    concepts = self.extractor.extract_no_overlap(question)
+                    if len(concepts)==0:
+                        positions = None
+                    else:
+                        tensor, positions = self._add_possitions(question,
+                                                             tensor,
+                                                             offsets,
+                                                             concepts,
+                                                             maxlen
+                                                             )
+                    question_tensors.append(tensor)
+                    question_offsets.append(positions)
+                else:
+                    question_tensors.append(output)
 
         ctxs_tensor = torch.cat([ctx.view(1, -1) for ctx in ctx_tensors], dim=0)
+        #fixme aggregate positions
+        ctxt_poss = None
         questions_tensor = torch.cat([q.view(1, -1) for q in question_tensors], dim=0)
+        #fixme aggregate positions
+        questions_poss = None
 
         ctx_segments = torch.zeros_like(ctxs_tensor)
         question_segments = torch.zeros_like(questions_tensor)
-        # fixme generate position embeddings for training
 
         return BiEncoderBatch(
             questions_tensor,
             question_segments,
+            questions_poss,
             ctxs_tensor,
             ctx_segments,
+            ctxt_poss,
             positive_ctx_indices,
             hard_neg_ctx_indices,
             "question",

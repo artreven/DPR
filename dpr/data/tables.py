@@ -3,6 +3,7 @@ import csv
 import json
 import logging
 import unicodedata
+from importlib import import_module
 
 import jsonlines
 import spacy as spacy
@@ -18,6 +19,9 @@ console = logging.StreamHandler()
 console.setFormatter(log_formatter)
 logger.addHandler(console)
 
+if not spacy.util.is_package("en_core_web_sm"):
+    from spacy.cli import download
+    download("en_core_web_sm")
 nlp = spacy.load("en_core_web_sm", disable=["parser", "tagger", "ner", "entity_ruler"])
 
 

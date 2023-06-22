@@ -346,6 +346,7 @@ class BiEncoderTrainer(object):
             total_ctxs = len(ctx_represenations)
             ctxs_ids = biencoder_input.context_ids
             ctxs_segments = biencoder_input.ctx_segments
+            ctxs_positions = biencoder_input.ctx_positions
             bsz = ctxs_ids.size(0)
 
             # get the token to be used for representation selection
@@ -356,8 +357,10 @@ class BiEncoderTrainer(object):
             # split contexts batch into sub batches since it is supposed to be too large to be processed in one batch
             for j, batch_start in enumerate(range(0, bsz, sub_batch_size)):
 
-                q_ids, q_segments = (
-                    (biencoder_input.question_ids, biencoder_input.question_segments) if j == 0 else (None, None)
+                q_ids, q_segments, q_positions = (
+                    (biencoder_input.question_ids,
+                     biencoder_input.question_segments,
+                     biencoder_input.question_positions) if j == 0 else (None, None, None)
                 )
 
                 if j == 0 and cfg.n_gpu > 1 and q_ids.size(0) == 1:
@@ -371,14 +374,15 @@ class BiEncoderTrainer(object):
                 q_attn_mask = self.tensorizer.get_attn_mask(q_ids)
                 ctx_attn_mask = self.tensorizer.get_attn_mask(ctx_ids_batch)
                 with torch.no_grad():
-                    #fixme provide position embeddings
                     q_dense, ctx_dense = self.biencoder(
                         q_ids,
                         q_segments,
                         q_attn_mask,
+                        q_positions,
                         ctx_ids_batch,
                         ctx_seg_batch,
                         ctx_attn_mask,
+                        ctxs_positions,
                         encoder_type=encoder_type,
                         representation_token_pos=rep_positions,
                     )
@@ -448,6 +452,7 @@ class BiEncoderTrainer(object):
         rolling_loss_step = cfg.train.train_rolling_loss_step
         num_hard_negatives = cfg.train.hard_negatives
         num_other_negatives = cfg.train.other_negatives
+        use_concepts = cfg.train.use_concepts
         seed = cfg.seed
         self.biencoder.train()
         epoch_batches = train_data_iterator.max_iterations
@@ -477,6 +482,7 @@ class BiEncoderTrainer(object):
                 shuffle=True,
                 shuffle_positives=shuffle_positives,
                 query_token=special_token,
+                use_concepts=use_concepts
             )
 
             # get the token to be used for representation selection
@@ -706,10 +712,11 @@ def _do_biencoder_fwd_pass(
             input.question_ids,
             input.question_segments,
             q_attn_mask,
-            #fixme provide position embeddings from biencoder batch
+            input.question_positions,
             input.context_ids,
             input.ctx_segments,
             ctx_attn_mask,
+            input.ctx_positions,
             encoder_type=encoder_type,
             representation_token_pos=rep_positions,
         )

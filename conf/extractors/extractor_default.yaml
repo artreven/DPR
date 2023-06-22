@@ -1,0 +1,15 @@
+# @package _group_
+#fixme add extractor parameter
+extractor_type : PoolPartyExtractor
+params:
+  pphost: str
+  pppid: str
+  ppuser: str
+  pppwd: str
+  language: en
+  cpt_id_type: prefLabel
+  sql_db_tablename: extracted_cpts
+  use_thes_file: ./thes/ppkgt.n3
+  use_uris_as_keys: False
+  sql_db_path:
+

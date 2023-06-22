@@ -9,6 +9,7 @@ log_batch_step: 100
 train_rolling_loss_step: 100
 weight_decay: 0.0
 learning_rate: 1e-5
+use_concepts: True
 
 # Linear warmup over warmup_steps.
 warmup_steps: 100

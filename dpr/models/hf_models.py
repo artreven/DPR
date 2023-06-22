@@ -55,7 +55,15 @@ def get_bert_biencoder_components(cfg, inference_only: bool = False, **kwargs):
     )
 
     fix_ctx_encoder = cfg.encoder.fix_ctx_encoder if hasattr(cfg.encoder, "fix_ctx_encoder") else False
-    biencoder = BiEncoder(question_encoder, ctx_encoder, fix_ctx_encoder=fix_ctx_encoder)
+
+    #fixme not a nice place to put this functionality
+    extractor = None
+    extractor_type = cfg.extractors.extractor_type
+    if extractor_type is not None:
+        from dpr.knowledge_infusion import init_extractor
+        extractor = init_extractor(extractor_type,cfg.extractors.params)
+
+    biencoder = BiEncoder(question_encoder, ctx_encoder, fix_ctx_encoder=fix_ctx_encoder, entity_extractor=extractor)
 
     optimizer = (
         get_optimizer(

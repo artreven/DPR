@@ -42,5 +42,8 @@ setup(
         "jsonlines",
         "soundfile",
         "editdistance",
+        # from extractors
+        "requests",
+        "pp_api @ git+https://github.com/semantic-web-company/pp_api.git"
     ],
 )
