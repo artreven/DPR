@@ -23,6 +23,7 @@ from torch import nn
 from dpr.data.biencoder_data import BiEncoderSample
 from dpr.knowledge_infusion.extractors import AbstractEntityExtractor
 from dpr.utils.data_utils import Tensorizer
+from dpr.utils.extractor_utils import _add_positions
 from dpr.utils.model_utils import CheckpointState
 
 logger = logging.getLogger(__name__)
@@ -221,25 +222,29 @@ class BiEncoder(nn.Module):
             current_ctxs_len = len(ctx_tensors)
 
             for ctx in all_ctxs:
+                #fixme later
+                # if (insert_title and ctx.title):
+                #   input_text = (tokenizer. text_pair
+
                 output = tensorizer.text_to_tensor(ctx.text,
-                                                            title=ctx.title if (insert_title and ctx.title) else None,
+                                                            #title=ctx.title if (insert_title and ctx.title) else None,
                                                             **additional_tens_ttt_parameter)
                 if self.extractor is not None and use_concepts:
                     assert(isinstance(output, tuple))
                     tensor, offsets = output
+                    #tensor = torch.unsqueeze(tensor,0) if len(tensor.shape) < 2 else tensor
                     maxlen = tensorizer.max_length
-                    concepts = self.extractor.extract_no_overlap(ctx.text) #fixme is it correct to only process the text, not the title
-                    if len(concepts)==0:
-                        positions = None
-                    else:
-                        tensor, positions = self._add_possitions(ctx.text, #fixme this function is not implemented yet!
-                                                                 tensor,
-                                                                 offsets,
-                                                                 concepts,
-                                                                 maxlen
+                    concepts = self.extractor.extract_no_overlap(ctx.title) #fixme later is it correct to only process the text, not the title
+
+                    tensor, positions = _add_positions(text=ctx.text,
+                                                           token_tensor=tensor,
+                                                           offset_map=offsets,
+                                                           concepts=concepts,
+                                                           tensorizer=tensorizer,
+                                                           maxlen=maxlen
                                                                  )
                     ctx_tensors.append(tensor)
-                    ctx_offsets.append(positions)
+                    ctx_offsets.append(torch.squeeze(positions))
 
                 else:
                     ctx_tensors.append(output)
@@ -277,26 +282,23 @@ class BiEncoder(nn.Module):
                     tensor, offsets = output
                     maxlen = tensorizer.max_length
                     concepts = self.extractor.extract_no_overlap(question)
-                    if len(concepts)==0:
-                        positions = None
-                    else:
-                        tensor, positions = self._add_possitions(question,
-                                                             tensor,
-                                                             offsets,
-                                                             concepts,
-                                                             maxlen
+                    tensor, positions = _add_positions(text=question,
+                                                           token_tensor=tensor,
+                                                           offset_map=offsets,
+                                                           concepts=concepts,
+                                                           tensorizer=tensorizer,
+                                                           maxlen=maxlen
                                                              )
                     question_tensors.append(tensor)
-                    question_offsets.append(positions)
+                    question_offsets.append(torch.squeeze(positions))
                 else:
                     question_tensors.append(output)
 
-        ctxs_tensor = torch.cat([ctx.view(1, -1) for ctx in ctx_tensors], dim=0)
-        #fixme aggregate positions
-        ctxt_poss = None
-        questions_tensor = torch.cat([q.view(1, -1) for q in question_tensors], dim=0)
-        #fixme aggregate positions
-        questions_poss = None
+        #fixme this will break if you don't use a bert tokenizer
+        ctxs_tensor = tensorizer.pad_tensor_list(ctx_tensors)
+        ctxt_poss = tensorizer.pad_tensor_list(ctx_offsets)
+        questions_tensor = tensorizer.pad_tensor_list(question_tensors)
+        questions_poss = tensorizer.pad_tensor_list(question_offsets)
 
         ctx_segments = torch.zeros_like(ctxs_tensor)
         question_segments = torch.zeros_like(questions_tensor)

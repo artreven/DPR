@@ -1,5 +1,6 @@
 import dataclasses
 import logging
+import os
 import re
 import sqlite3
 from abc import ABC, abstractmethod
@@ -70,11 +71,12 @@ class PoolPartyExtractor(AbstractEntityExtractor):
         if sql_db_path is None:
             sql_db_path = opj("./tmp",
                               "PP_" + pppid + "_" + ".sqlite3")
+            os.makedirs("./tmp", exist_ok=True)
         if not sql_db_path.endswith(".sqlite3"):
             sql_db_path = opj(sql_db_path,"PP_" + pppid + "_" + ".sqlite3")
         self.pp = PoolParty(server=pphost,
                             auth_data=(ppuser, pppwd))
-        self.conn = sqlite3.connect(sql_db_path) #fixme
+        self.conn = sqlite3.connect(sql_db_path)
         self.thesgraph = None
         if use_thes_file is not None:
             self.thesgraph = rdflib.Graph()

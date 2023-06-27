@@ -101,6 +101,9 @@ class Tensorizer(object):
     def get_token_id(self, token: str) -> int:
         raise NotImplementedError
 
+    def pad_tensor_list (self, tensor_list:List[T], padding_type="longest") -> T:
+        raise NotImplementedError
+
 
 class RepTokenSelector(object):
     def get_positions(self, input_ids: T, tenzorizer: Tensorizer):

@@ -363,6 +363,16 @@ class BertTensorizer(Tensorizer):
     def get_token_id(self, token: str) -> int:
         return self.tokenizer.vocab[token]
 
+    def pad_tensor_list(self, tensor_list:List[T], padding_type="longest"):
+        batch = transformers.BatchEncoding({"input_ids" : tensor_list})
+        return self.tokenizer.pad(
+            batch,
+            padding=padding_type,
+            max_length=self.max_length,
+            # Conversion to tensors will fail if we have labels as they are not of the same length yet.
+            return_tensors="pt",
+        ).data['input_ids']
+
 
 class RobertaTensorizer(BertTensorizer):
     def __init__(self, tokenizer, max_length: int, pad_to_max: bool = True):
