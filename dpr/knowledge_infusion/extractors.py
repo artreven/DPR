@@ -63,7 +63,7 @@ class PoolPartyExtractor(AbstractEntityExtractor):
                  language: str = "en",
                  cpt_id_type: str = "prefLabel",
                  sql_db_tablename: str = "extracted_cpts",
-                 use_thes_file: str = "./thes/ppkgt.n3",
+                 use_thes_file: Optional[str] = None,
                  use_uris_as_keys : bool = False,
                  sql_db_path: Optional[str] = None, **kwargs):
         self.cpt_id_type = cpt_id_type
