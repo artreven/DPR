@@ -237,6 +237,7 @@ class BiEncoderTrainer(object):
         num_hard_negatives = cfg.train.hard_negatives
         num_other_negatives = cfg.train.other_negatives
         log_result_step = cfg.train.log_batch_step
+        use_concepts = cfg.train.use_concepts
         batches = 0
         dataset = 0
         biencoder = get_model_obj(self.biencoder)
@@ -253,6 +254,7 @@ class BiEncoderTrainer(object):
                 num_hard_negatives,
                 num_other_negatives,
                 shuffle=False,
+                use_concepts=use_concepts,
             )
             biencoder_input = BiEncoderBatch(**move_to_device(biencoder_input._asdict(), cfg.device))
 
@@ -322,6 +324,7 @@ class BiEncoderTrainer(object):
 
         num_hard_negatives = cfg.train.val_av_rank_hard_neg
         num_other_negatives = cfg.train.val_av_rank_other_neg
+        use_concepts = cfg.train.use_concepts
 
         log_result_step = cfg.train.log_batch_step
         dataset = 0
@@ -341,6 +344,7 @@ class BiEncoderTrainer(object):
                 num_hard_negatives,
                 num_other_negatives,
                 shuffle=False,
+                use_concepts=use_concepts,
             )
             biencoder_input = BiEncoderBatch(**move_to_device(biencoder_input._asdict(), cfg.device))
             total_ctxs = len(ctx_represenations)
@@ -726,9 +730,11 @@ def _do_biencoder_fwd_pass(
                 input.question_ids,
                 input.question_segments,
                 q_attn_mask,
+                input.question_positions,
                 input.context_ids,
                 input.ctx_segments,
                 ctx_attn_mask,
+                input.ctx_positions,
                 encoder_type=encoder_type,
                 representation_token_pos=rep_positions,
             )
