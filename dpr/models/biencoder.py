@@ -296,9 +296,9 @@ class BiEncoder(nn.Module):
 
         #fixme this will break if you don't use a bert tokenizer
         ctxs_tensor = tensorizer.pad_tensor_list(ctx_tensors)
-        ctxt_poss = tensorizer.pad_tensor_list(ctx_offsets)
+        ctxt_poss = tensorizer.pad_tensor_list(ctx_offsets) if use_concepts else None
         questions_tensor = tensorizer.pad_tensor_list(question_tensors)
-        questions_poss = tensorizer.pad_tensor_list(question_offsets)
+        questions_poss = tensorizer.pad_tensor_list(question_offsets) if use_concepts else None
 
         ctx_segments = torch.zeros_like(ctxs_tensor)
         question_segments = torch.zeros_like(questions_tensor)
