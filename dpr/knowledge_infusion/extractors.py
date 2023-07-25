@@ -107,11 +107,14 @@ class PoolPartyExtractor(AbstractEntityExtractor):
         """
         result = dict()
         for cm in concept_matches:
-            cpt = cm.cpt_prefLabel
-            if self.cpt_id_type == "broaderLabel":
+            if self.cpt_id_type == "prefLabel":
+                cpt = cm.cpt_prefLabel
+            elif self.cpt_id_type == "broaderLabel":
                 cpt = cm.cpt_broaderLabel
-            if self.use_uris:
+            elif self.use_uris:
                 cpt = cm.cpt_id
+            else:
+                raise ValueError(f"{self.cpt_id_type} is not a valid cpt_id_type")
             beg = cm.match_start
             end = cm.match_end
             thiscpt = result.get(cpt, [])

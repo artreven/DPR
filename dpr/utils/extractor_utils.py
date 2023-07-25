@@ -5,6 +5,7 @@ import torch
 from torch import Tensor as T
 import numpy as np
 
+from dpr.utils.data_utils import Tensorizer
 
 logger = logging.getLogger()
 # setup_logger(logger)
@@ -31,7 +32,7 @@ def _add_positions(text: str,
                    token_tensor: T,
                    offset_map: np.ndarray,
                    concepts: Dict[str, List[Tuple[int, int]]],
-                   tensorizer, #fixme add tpe
+                   tensorizer: Tensorizer,
                    maxlen: int = 512,
                    force_concepts=0,
                    concepts_after_match=False) -> Tuple[T, T]:

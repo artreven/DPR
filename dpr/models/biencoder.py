@@ -12,7 +12,7 @@ BiEncoder component + loss function for 'all-in-batch' training
 import collections
 import logging
 import random
-from typing import Tuple, List
+from typing import Tuple, List, Optional
 
 import numpy as np
 import torch
@@ -125,11 +125,11 @@ class BiEncoder(nn.Module):
         question_ids: T,
         question_segments: T,
         question_attn_mask: T,
-        question_position_ids, # fixme type?
+        question_position_ids: Optional[T],
         context_ids: T,
         ctx_segments: T,
         ctx_attn_mask: T,
-        ctx_position_ids, # fixme type?
+        ctx_position_ids: Optional[T],
         encoder_type: str = None,
         representation_token_pos=0,
     ) -> Tuple[T, T]:
@@ -294,7 +294,6 @@ class BiEncoder(nn.Module):
                 else:
                     question_tensors.append(output)
 
-        #fixme this will break if you don't use a bert tokenizer
         ctxs_tensor = tensorizer.pad_tensor_list(ctx_tensors)
         ctxt_poss = tensorizer.pad_tensor_list(ctx_offsets) if use_concepts else None
         questions_tensor = tensorizer.pad_tensor_list(question_tensors)
