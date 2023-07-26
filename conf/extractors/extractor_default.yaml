@@ -1,9 +1,8 @@
 # @package _group_
-#fixme add extractor parameter
 extractor_type : PoolPartyExtractor
 params:
   pphost: str
-  pppid: 683a2331-330b-4bea-bf0e-c04834fb6e1c
+  pppid: str
   ppuser: str
   pppwd: str
   language: en
@@ -12,4 +11,5 @@ params:
   use_thes_file:
   use_uris_as_keys: False
   sql_db_path:
+  filter_out_preflabel_matches : True
 
