@@ -20,7 +20,7 @@ cpt2toktensor = dict()
 def _cpt_translator(cpt_label, tensorizer):
     if cpt_label in cpt2toktensor.keys():
         return cpt2toktensor[cpt_label]
-
+    #fixme breaks with different tensorizer?
     tens, offs = tensorizer.text_to_tensor(cpt_label.lower(), return_offsets=True)
     valid_idx = [x for x in tens.nonzero().squeeze().tolist()
                  if tens[x].greater(999)]

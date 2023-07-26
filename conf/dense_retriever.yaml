@@ -2,6 +2,7 @@ defaults:
   - encoder: hf_bert # defines encoder initialization parameters
   - datasets: retriever_default # contains a list of all possible sources of queries for evaluation. Specific set is selected by qa_dataset parameter
   - ctx_sources: default_sources # contains a list of all possible passage sources. Specific passages sources selected by ctx_datatsets parameter
+  - extractors: extractor_default
 
 indexers:
   flat:
@@ -21,6 +22,9 @@ ctx_datatsets:
 
 #Glob paths to encoded passages (from generate_dense_embeddings tool)
 encoded_ctx_files: []
+
+#whether or not concepts should be used
+use_concepts: True
 
 out_file:
 # "regex" or "string"
