@@ -234,7 +234,7 @@ class BiEncoder(nn.Module):
                     tensor, offsets = output
                     #tensor = torch.unsqueeze(tensor,0) if len(tensor.shape) < 2 else tensor
                     maxlen = tensorizer.max_length
-                    concepts = self.extractor.extract_no_overlap(ctx.title) #fixme later is it correct to only process the text, not the title
+                    concepts = self.extractor.extract_no_overlap(ctx.text) #fixme later is it correct to only process the text, not the title
 
                     tensor, positions = _add_positions(text=ctx.text,
                                                            token_tensor=tensor,
