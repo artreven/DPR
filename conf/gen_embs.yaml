@@ -1,6 +1,7 @@
 defaults:
   - encoder: hf_bert
   - ctx_sources: default_sources
+  - extractors: extractor_default
 
 # A trained bi-encoder checkpoint file to initialize the model
 model_file:
@@ -16,6 +17,10 @@ out_file:
 
 # Whether to lower case the input text. Set True for uncased models, False for the cased ones.
 do_lower_case: True
+insert_title: True
+
+#whether or not concepts should be used
+use_concepts: True
 
 # Number(0-based) of data shard to process
 shard_id: 0

@@ -60,6 +60,9 @@ def generate_question_vectors(
     additional_tens_ttt_parameter = {}
     if extractor is not None:
         additional_tens_ttt_parameter["return_offsets"] = True
+        additional_tens_ttt_parameter["return_text"] = True
+        additional_tens_ttt_parameter["title_concat_str"] = " "
+
 
     with torch.no_grad():
         for j, batch_start in enumerate(range(0, n, bsz)):
@@ -83,11 +86,13 @@ def generate_question_vectors(
                     output = tensorizer.text_to_tensor(q.lower(), **additional_tens_ttt_parameter)
                     #fixme not a nice place to put this functionality, also duplicated in hf_models.get_bert_biencoder_components
                     if extractor is not None:
-                        assert (isinstance(output, tuple))
-                        tensor, offsets = output
+                        assert (isinstance(output, dict))
+                        tensor = output['ids']
+                        offsets = output['offsets']
+                        question = output["text"]
                         maxlen = tensorizer.max_length
-                        concepts = extractor.extract_no_overlap(q)
-                        tensor, positions = _add_positions(text=q,
+                        concepts = extractor.extract_no_overlap(question)
+                        tensor, positions = _add_positions(text=question,
                                                            token_tensor=tensor,
                                                            offset_map=offsets,
                                                            concepts=concepts,

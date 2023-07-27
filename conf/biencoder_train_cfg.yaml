@@ -14,6 +14,7 @@ loss_scale_factors:
 
 # Whether to lower case the input text. Set True for uncased models, False for the cased ones.
 do_lower_case: True
+add_title: True
 
 val_av_rank_start_epoch: 30
 seed: 12345

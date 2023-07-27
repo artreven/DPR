@@ -299,31 +299,26 @@ class BertTensorizer(Tensorizer):
         title: str = None,
         add_special_tokens: bool = True,
         apply_max_len: bool = True,
-        return_offsets = False
+        title_concat_str = " ", # can also be [SEP]
+        return_offsets = False,
+        return_text = False
+        # fixme add title_concat_str, return_offsets, and return_text to parent class?
     ):
         text = text.strip()
         # tokenizer automatic padding is explicitly disabled since its inconsistent behavior
         # TODO: move max len to methods params?
 
         if title:
-            encodings = self.tokenizer.encode_plus(
-                title,
-                text_pair=text,
-                add_special_tokens=add_special_tokens,
-                max_length=self.max_length if apply_max_len else 10000,
-                pad_to_max_length=False,
-                truncation=True,
-                return_offsets_mapping=True,
-            )
-        else:
-            encodings = self.tokenizer.encode_plus(
-                text,
-                add_special_tokens=add_special_tokens,
-                max_length=self.max_length if apply_max_len else 10000,
-                pad_to_max_length=False,
-                truncation=True,
-                return_offsets_mapping=True,
-            )
+            text = title + title_concat_str + text
+
+        encodings = self.tokenizer.encode_plus(
+            text,
+            add_special_tokens=add_special_tokens,
+            max_length=self.max_length if apply_max_len else 10000,
+            pad_to_max_length=False,
+            truncation=True,
+            return_offsets_mapping=True,
+        )
         token_ids = encodings.data["input_ids"]
         seq_len = self.max_length
         if self.pad_to_max and len(token_ids) < seq_len:
@@ -331,6 +326,8 @@ class BertTensorizer(Tensorizer):
         if len(token_ids) >= seq_len:
             token_ids = token_ids[0:seq_len] if apply_max_len else token_ids
             token_ids[-1] = self.tokenizer.sep_token_id
+        return_value = torch.tensor(token_ids) if not(return_offsets or return_text) \
+            else {"ids": torch.tensor(token_ids)}
 
         if return_offsets:
             offsets = np.zeros(len(text), dtype=np.int8)
@@ -338,8 +335,10 @@ class BertTensorizer(Tensorizer):
                 if token_idx < 1:
                     continue
                 offsets[pos[0]:pos[1]] = token_idx
-            return torch.tensor(token_ids), offsets
-        return torch.tensor(token_ids)
+            return_value["offsets"] =  offsets
+        if return_text:
+            return_value["text"] = text
+        return return_value
 
     def get_pair_separator_ids(self) -> T:
         return torch.tensor([self.tokenizer.sep_token_id])
