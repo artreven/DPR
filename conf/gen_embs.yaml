@@ -18,6 +18,7 @@ out_file:
 # Whether to lower case the input text. Set True for uncased models, False for the cased ones.
 do_lower_case: True
 insert_title: True
+title_concat_string: " "
 
 #whether or not concepts should be used
 use_concepts: True
