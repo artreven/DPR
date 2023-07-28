@@ -330,7 +330,7 @@ class BertTensorizer(Tensorizer):
             else {"ids": torch.tensor(token_ids)}
 
         if return_offsets:
-            offsets = np.zeros(len(text), dtype=np.int8)
+            offsets = np.zeros(len(text), dtype=np.int16)
             for token_idx, pos in enumerate(encodings['offset_mapping']):
                 if token_idx < 1:
                     continue
