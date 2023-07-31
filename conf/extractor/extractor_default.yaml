@@ -1,4 +1,5 @@
 # @package _group_
+# type of the extractor. One of [PoolPartyExtractor]
 extractor_type : PoolPartyExtractor
 params:
   pphost: str
