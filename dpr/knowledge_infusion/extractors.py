@@ -335,8 +335,7 @@ class PoolPartyExtractor(AbstractEntityExtractor):
                         for ml in cpt['matchingLabels']
                         for occ in ml['matchedTexts']
                         for pos in occ['positions']
-                        if (not self.filter_out_preflabel_matches or
-                            self._results2prefLabel(cpt, occ, lang).lower() != occ['matchedText'].lower())
+                        if (not self.filter_out_preflabel_matches or ml['predicate']!= 'prefLabel')
                         ]
         # print("Matches...............")
         # print(json.dumps(matches,indent=2))
