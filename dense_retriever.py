@@ -62,7 +62,6 @@ def generate_question_vectors(
     if extractor is not None:
         additional_tens_ttt_parameter["return_offsets"] = True
         additional_tens_ttt_parameter["return_text"] = True
-        additional_tens_ttt_parameter["title_concat_str"] = " "
 
 
     with torch.no_grad():
