@@ -4,7 +4,8 @@ defaults:
   - encoder: hf_bert
   - train: biencoder_default
   - datasets: encoder_train_default
-  - extractors: extractor_default
+  - extractor: extractor_default
+  - expander: expander_default
 
 train_datasets:
 dev_datasets:

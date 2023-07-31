@@ -23,12 +23,12 @@ from omegaconf import DictConfig, OmegaConf
 from torch import nn
 
 from dpr.data.biencoder_data import BiEncoderPassage
+from dpr.knowledge_infusion.expanders import AbstractEntityExpander
 from dpr.knowledge_infusion.extractors import AbstractEntityExtractor
 from dpr.models import init_biencoder_components
 from dpr.options import set_cfg_params_from_state, setup_cfg_gpu, setup_logger
 
 from dpr.utils.data_utils import Tensorizer
-from dpr.utils.extractor_utils import _add_positions
 from dpr.utils.model_utils import (
     setup_for_distributed_mode,
     get_model_obj,
@@ -46,6 +46,7 @@ def gen_ctx_vectors(
     model: nn.Module,
     tensorizer: Tensorizer,
     extractor: AbstractEntityExtractor = None,
+    expander: AbstractEntityExpander = None,
     insert_title: bool = True,
 ) -> List[Tuple[object, np.array]]:
     n = len(ctx_rows)
@@ -75,14 +76,11 @@ def gen_ctx_vectors(
                 ctx_text = output["text"]
                 concepts = extractor.extract_no_overlap(ctx_text)
 
-                tensor, positions = _add_positions(text=ctx_text,
-                                                   token_tensor=tensor,
-                                                   offset_map=offsets,
-                                                   concepts=concepts,
-                                                   tensorizer=tensorizer,
-                                                   maxlen=tensorizer.max_length
-                                                   )
-                batch_token_tensors.append(tensor)
+                exp_tensor, positions = expander(token_tensor=tensor,
+                                             tensorizer=tensorizer,
+                                             offset_map=offsets,
+                                             concepts=concepts)
+                batch_token_tensors.append(exp_tensor)
                 batch_offset_tensors.append(torch.squeeze(positions))
             else:
                 batch_token_tensors = output
@@ -129,11 +127,12 @@ def main(cfg: DictConfig):
 
     logger.info("CFG:")
     logger.info("%s", OmegaConf.to_yaml(cfg))
-
     tensorizer, encoder, _ = init_biencoder_components(cfg.encoder.encoder_model_type, cfg, inference_only=True)
 
     extractor = encoder.extractor if hasattr(encoder, "extractor") else None
     extractor = extractor if cfg.use_concepts else None
+    expander = encoder.expander if hasattr(encoder, "expander") else None
+    expander = expander if cfg.use_concepts else None
     encoder = encoder.ctx_model if cfg.encoder_type == "ctx" else encoder.question_model
 
     encoder, _ = setup_for_distributed_mode(
@@ -177,7 +176,7 @@ def main(cfg: DictConfig):
     )
     shard_passages = all_passages[start_idx:end_idx]
 
-    data = gen_ctx_vectors(cfg, shard_passages, encoder, tensorizer, extractor, cfg.insert_title)
+    data = gen_ctx_vectors(cfg, shard_passages, encoder, tensorizer, extractor, expander, cfg.insert_title)
 
     file = cfg.out_file + "_" + str(cfg.shard_id)
     pathlib.Path(os.path.dirname(file)).mkdir(parents=True, exist_ok=True)

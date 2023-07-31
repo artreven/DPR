@@ -58,12 +58,21 @@ def get_bert_biencoder_components(cfg, inference_only: bool = False, **kwargs):
 
     #fixme not a nice place to put this functionality
     extractor = None
-    extractor_type = cfg.extractors.extractor_type
+    extractor_type = cfg.extractor.extractor_type
     if extractor_type is not None:
         from dpr.knowledge_infusion import init_extractor
-        extractor = init_extractor(extractor_type,cfg.extractors.params)
+        extractor = init_extractor(extractor_type, cfg.extractor.params)
+    expander = None
+    expander_type = cfg.expander.expander_type
+    if expander_type is not None:
+        from dpr.knowledge_infusion import init_expander
+        expander = init_expander(expander_type, cfg.expander.params)
 
-    biencoder = BiEncoder(question_encoder, ctx_encoder, fix_ctx_encoder=fix_ctx_encoder, entity_extractor=extractor)
+    biencoder = BiEncoder(question_encoder,
+                          ctx_encoder,
+                          fix_ctx_encoder=fix_ctx_encoder,
+                          entity_extractor=extractor,
+                          entity_expander=expander)
 
     optimizer = (
         get_optimizer(
@@ -120,7 +129,7 @@ def get_bert_tensorizer(cfg):
 
 
 def get_bert_tensorizer_p(
-    pretrained_model_cfg: str, sequence_length: int, do_lower_case: bool = True, special_tokens: List[str] = []
+        pretrained_model_cfg: str, sequence_length: int, do_lower_case: bool = True, special_tokens: List[str] = []
 ):
     tokenizer = get_bert_tokenizer(pretrained_model_cfg, do_lower_case=do_lower_case)
     if special_tokens:

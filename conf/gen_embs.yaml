@@ -1,7 +1,8 @@
 defaults:
   - encoder: hf_bert
   - ctx_sources: default_sources
-  - extractors: extractor_default
+  - extractor: extractor_default
+  - expander: expander_default
 
 # A trained bi-encoder checkpoint file to initialize the model
 model_file:

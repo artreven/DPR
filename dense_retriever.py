@@ -24,6 +24,7 @@ from omegaconf import DictConfig, OmegaConf
 from torch import Tensor as T
 from torch import nn
 
+from dpr.knowledge_infusion.expanders import AbstractEntityExpander
 from dpr.knowledge_infusion.extractors import AbstractEntityExtractor
 from dpr.utils.data_utils import RepTokenSelector
 from dpr.data.qa_validation import calculate_matches, calculate_chunked_matches, calculate_matches_from_meta
@@ -38,7 +39,6 @@ from dpr.models.biencoder import (
 )
 from dpr.options import setup_logger, setup_cfg_gpu, set_cfg_params_from_state
 from dpr.utils.data_utils import Tensorizer
-from dpr.utils.extractor_utils import _add_positions
 from dpr.utils.model_utils import setup_for_distributed_mode, get_model_obj, load_states_from_checkpoint
 
 logger = logging.getLogger()
@@ -49,6 +49,7 @@ def generate_question_vectors(
     question_encoder: torch.nn.Module,
     tensorizer: Tensorizer,
     extractor: AbstractEntityExtractor,
+    expander: AbstractEntityExpander,
     questions: List[str],
     bsz: int,
     query_token: str = None,
@@ -90,17 +91,12 @@ def generate_question_vectors(
                         tensor = output['ids']
                         offsets = output['offsets']
                         question = output["text"]
-                        maxlen = tensorizer.max_length
                         concepts = extractor.extract_no_overlap(question)
-                        tensor, positions = _add_positions(text=question,
-                                                           token_tensor=tensor,
-                                                           offset_map=offsets,
-                                                           concepts=concepts,
-                                                           tensorizer=tensorizer,
-                                                           maxlen=maxlen)
-
-
-                        batch_tensors.append(tensor)
+                        exp_tensor, positions = expander(token_tensor=tensor,
+                                                          tensorizer=tensorizer,
+                                                          offset_map=offsets,
+                                                          concepts=concepts)
+                        batch_tensors.append(exp_tensor)
                         batch_positions.append(torch.squeeze(positions))
                     else:
                         batch_tensors.append(output)
@@ -149,12 +145,21 @@ def generate_question_vectors(
 
 
 class DenseRetriever(object):
-    def __init__(self, question_encoder: nn.Module, batch_size: int, tensorizer: Tensorizer, extractor: AbstractEntityExtractor=None):
+    def __init__(self,
+                 question_encoder: nn.Module,
+                 batch_size: int,
+                 tensorizer: Tensorizer,
+                 extractor: AbstractEntityExtractor=None,
+                 expander:AbstractEntityExpander=None):
         self.question_encoder = question_encoder
         self.batch_size = batch_size
         self.tensorizer = tensorizer
         self.selector = None
         self.extractor = extractor
+        self.expander = expander
+        if self.extractor is not None and self.expander is None:
+            logger.error('For integrating concepts, both extractor and expander must be provided. '
+                         'Otherwise, both should be None')
 
     def generate_question_vectors(self, questions: List[str], query_token: str = None) -> T:
 
@@ -164,6 +169,7 @@ class DenseRetriever(object):
             self.question_encoder,
             self.tensorizer,
             self.extractor,
+            self.expander,
             questions,
             bsz,
             query_token=query_token,
@@ -182,9 +188,10 @@ class LocalFaissRetriever(DenseRetriever):
         batch_size: int,
         tensorizer: Tensorizer,
         index: DenseIndexer,
-        extractor: AbstractEntityExtractor = None
+        extractor: AbstractEntityExtractor = None,
+        expander: AbstractEntityExpander = None
     ):
-        super().__init__(question_encoder, batch_size, tensorizer, extractor)
+        super().__init__(question_encoder, batch_size, tensorizer, extractor, expander)
         self.index = index
 
     def index_encoded_data(
@@ -232,12 +239,13 @@ class DenseRPCRetriever(DenseRetriever):
         index_cfg_path: str,
         dim: int,
         extractor: AbstractEntityExtractor = None,
+        expander: AbstractEntityExpander = None,
         use_l2_conversion: bool = False,
         nprobe: int = 256,
     ):
         from distributed_faiss.client import IndexClient
 
-        super().__init__(question_encoder, batch_size, tensorizer, extractor)
+        super().__init__(question_encoder, batch_size, tensorizer, extractor, expander)
         self.dim = dim
         self.index_id = "dr"
         self.nprobe = nprobe
@@ -528,6 +536,8 @@ def main(cfg: DictConfig):
     tensorizer, encoder, _ = init_biencoder_components(cfg.encoder.encoder_model_type, cfg, inference_only=True)
     extractor = encoder.extractor if hasattr(encoder, "extractor") else None
     extractor = extractor if cfg.use_concepts else None
+    expander = encoder.expander if hasattr(encoder, "expander") else None
+    expander = expander if cfg.use_concepts else None
 
     logger.info("Loading saved model state ...")
     encoder.load_state(saved_state, strict=False)
@@ -581,6 +591,7 @@ def main(cfg: DictConfig):
             cfg.rpc_retriever_cfg_file,
             vector_size,
             extractor=extractor,
+            expander=expander,
             use_l2_conversion=cfg.use_l2_conversion,
         )
     else:
@@ -588,7 +599,7 @@ def main(cfg: DictConfig):
         logger.info("Local Index class %s ", type(index))
         index_buffer_sz = index.buffer_size
         index.init_index(vector_size)
-        retriever = LocalFaissRetriever(encoder, cfg.batch_size, tensorizer, index, extractor=extractor)
+        retriever = LocalFaissRetriever(encoder, cfg.batch_size, tensorizer, index, extractor=extractor, expander=expander)
 
     logger.info("Using special token %s", qa_src.special_query_token)
     questions_tensor = retriever.generate_question_vectors(questions, query_token=qa_src.special_query_token)
