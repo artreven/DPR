@@ -21,9 +21,9 @@ from torch import Tensor as T
 from torch import nn
 
 from dpr.data.biencoder_data import BiEncoderSample
+from dpr.knowledge_infusion.expanders import AbstractEntityExpander
 from dpr.knowledge_infusion.extractors import AbstractEntityExtractor
 from dpr.utils.data_utils import Tensorizer
-from dpr.utils.extractor_utils import _add_positions
 from dpr.utils.model_utils import CheckpointState
 
 logger = logging.getLogger(__name__)
@@ -73,6 +73,7 @@ class BiEncoder(nn.Module):
         fix_q_encoder: bool = False,
         fix_ctx_encoder: bool = False,
         entity_extractor: AbstractEntityExtractor = None,
+        entity_expander: AbstractEntityExpander = None
     ):
         super(BiEncoder, self).__init__()
         self.question_model = question_model
@@ -80,6 +81,11 @@ class BiEncoder(nn.Module):
         self.fix_q_encoder = fix_q_encoder
         self.fix_ctx_encoder = fix_ctx_encoder
         self.extractor = entity_extractor
+        self.expander = entity_expander
+
+        if self.extractor is not None and self.expander is None:
+            logger.error('For integrating concepts, both extractor and expander must be provided. '
+                         'Otherwise, both should be None')
 
     @staticmethod
     def get_representation(
@@ -189,6 +195,8 @@ class BiEncoder(nn.Module):
         additional_tens_ttt_parameter = {}
         if use_concepts:
             additional_tens_ttt_parameter["return_offsets"] = True
+            additional_tens_ttt_parameter["return_text"] = True
+            additional_tens_ttt_parameter["title_concat_str"] = " "
 
         for sample in samples:
             # ctx+ & [ctx-] composition
@@ -222,27 +230,21 @@ class BiEncoder(nn.Module):
             current_ctxs_len = len(ctx_tensors)
 
             for ctx in all_ctxs:
-                #fixme later
-                # if (insert_title and ctx.title):
-                #   input_text = (tokenizer. text_pair
 
                 output = tensorizer.text_to_tensor(ctx.text,
-                                                            #title=ctx.title if (insert_title and ctx.title) else None,
-                                                            **additional_tens_ttt_parameter)
+                                                    title=ctx.title if (insert_title and ctx.title) else None,
+                                                    **additional_tens_ttt_parameter)
                 if self.extractor is not None and use_concepts:
-                    assert(isinstance(output, tuple))
-                    tensor, offsets = output
-                    #tensor = torch.unsqueeze(tensor,0) if len(tensor.shape) < 2 else tensor
-                    maxlen = tensorizer.max_length
-                    concepts = self.extractor.extract_no_overlap(ctx.title) #fixme later is it correct to only process the text, not the title
+                    assert(isinstance(output, dict))
+                    tensor = output["ids"]
+                    offsets = output["offsets"]
+                    ctx_text = output["text"]
+                    concepts = self.extractor.extract_no_overlap(ctx_text)
+                    tensor, positions = self.expander(token_tensor = tensor,
+                                                      tensorizer = tensorizer,
+                                                      offset_map=offsets,
+                                                      concepts=concepts)
 
-                    tensor, positions = _add_positions(text=ctx.text,
-                                                           token_tensor=tensor,
-                                                           offset_map=offsets,
-                                                           concepts=concepts,
-                                                           tensorizer=tensorizer,
-                                                           maxlen=maxlen
-                                                                 )
                     ctx_tensors.append(tensor)
                     ctx_offsets.append(torch.squeeze(positions))
 
@@ -278,17 +280,15 @@ class BiEncoder(nn.Module):
             else:
                 output = tensorizer.text_to_tensor(question, **additional_tens_ttt_parameter)
                 if self.extractor is not None and use_concepts:
-                    assert(isinstance(output, tuple))
-                    tensor, offsets = output
-                    maxlen = tensorizer.max_length
+                    assert (isinstance(output, dict))
+                    tensor = output["ids"]
+                    offsets = output["offsets"]
+                    question = output["text"]
                     concepts = self.extractor.extract_no_overlap(question)
-                    tensor, positions = _add_positions(text=question,
-                                                           token_tensor=tensor,
-                                                           offset_map=offsets,
-                                                           concepts=concepts,
-                                                           tensorizer=tensorizer,
-                                                           maxlen=maxlen
-                                                             )
+                    tensor, positions = self.expander(token_tensor=tensor,
+                                                      tensorizer=tensorizer,
+                                                      offset_map=offsets,
+                                                      concepts=concepts)
                     question_tensors.append(tensor)
                     question_offsets.append(torch.squeeze(positions))
                 else:

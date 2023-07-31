@@ -7,6 +7,7 @@ from abc import ABC, abstractmethod
 from hashlib import sha256
 from os.path import join as opj
 from typing import Dict, List, Tuple, Optional
+import numpy as np
 
 import rdflib
 import requests
@@ -65,9 +66,11 @@ class PoolPartyExtractor(AbstractEntityExtractor):
                  sql_db_tablename: str = "extracted_cpts",
                  use_thes_file: Optional[str] = None,
                  use_uris_as_keys : bool = False,
+                 filter_out_preflabel_matches = False,
                  sql_db_path: Optional[str] = None, **kwargs):
         self.cpt_id_type = cpt_id_type
         self.use_uris = use_uris_as_keys
+        self.filter_out_preflabel_matches = filter_out_preflabel_matches
         if sql_db_path is None:
             sql_db_path = opj("./tmp",
                               "PP_" + pppid + "_" + ".sqlite3")
@@ -105,18 +108,25 @@ class PoolPartyExtractor(AbstractEntityExtractor):
          "cpt2":[(7,10),(37,49)]
         }
         """
+        if len(concept_matches)==0:
+            return dict()
+        maxend = max([cm.match_end for cm in concept_matches])
+        hitmap = np.zeros(maxend+100)
         result = dict()
         for cm in concept_matches:
-            if self.cpt_id_type == "prefLabel":
+            if self.use_uris:
+                cpt = cm.cpt_id
+            elif self.cpt_id_type == "prefLabel":
                 cpt = cm.cpt_prefLabel
             elif self.cpt_id_type == "broaderLabel":
                 cpt = cm.cpt_broaderLabel
-            elif self.use_uris:
-                cpt = cm.cpt_id
             else:
                 raise ValueError(f"{self.cpt_id_type} is not a valid cpt_id_type")
             beg = cm.match_start
             end = cm.match_end
+            hitmap[beg:end+1] += 1
+            if hitmap[beg:end+1].max() > 1:
+                continue
             thiscpt = result.get(cpt, [])
             thiscpt.append((beg, end))
             result[cpt] = thiscpt
@@ -235,10 +245,10 @@ class PoolPartyExtractor(AbstractEntityExtractor):
                     self.pp.get_cpts_info(uris=[cpt],
                                           pid=pid)
             else:
-                labs = self.thesgraph.triples((rdflib.URIRef(cpt),
+                labs = [x for x in self.thesgraph.triples((rdflib.URIRef(cpt),
                                                rdflib.namespace.SKOS[
                                                    "prefLabel"],
-                                               None))
+                                               None))]
                 for _, _, lab in labs:
                     lab: rdflib.Literal
                     if lab.language == lang or len(labs) == 0:
@@ -325,6 +335,7 @@ class PoolPartyExtractor(AbstractEntityExtractor):
                         for ml in cpt['matchingLabels']
                         for occ in ml['matchedTexts']
                         for pos in occ['positions']
+                        if (not self.filter_out_preflabel_matches or ml['predicate']!= 'prefLabel')
                         ]
         # print("Matches...............")
         # print(json.dumps(matches,indent=2))

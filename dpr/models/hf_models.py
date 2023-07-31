@@ -58,12 +58,21 @@ def get_bert_biencoder_components(cfg, inference_only: bool = False, **kwargs):
 
     #fixme not a nice place to put this functionality
     extractor = None
-    extractor_type = cfg.extractors.extractor_type
+    extractor_type = cfg.extractor.extractor_type
     if extractor_type is not None:
         from dpr.knowledge_infusion import init_extractor
-        extractor = init_extractor(extractor_type,cfg.extractors.params)
+        extractor = init_extractor(extractor_type, cfg.extractor.params)
+    expander = None
+    expander_type = cfg.expander.expander_type
+    if expander_type is not None:
+        from dpr.knowledge_infusion import init_expander
+        expander = init_expander(expander_type, cfg.expander.params)
 
-    biencoder = BiEncoder(question_encoder, ctx_encoder, fix_ctx_encoder=fix_ctx_encoder, entity_extractor=extractor)
+    biencoder = BiEncoder(question_encoder,
+                          ctx_encoder,
+                          fix_ctx_encoder=fix_ctx_encoder,
+                          entity_extractor=extractor,
+                          entity_expander=expander)
 
     optimizer = (
         get_optimizer(
@@ -120,7 +129,7 @@ def get_bert_tensorizer(cfg):
 
 
 def get_bert_tensorizer_p(
-    pretrained_model_cfg: str, sequence_length: int, do_lower_case: bool = True, special_tokens: List[str] = []
+        pretrained_model_cfg: str, sequence_length: int, do_lower_case: bool = True, special_tokens: List[str] = []
 ):
     tokenizer = get_bert_tokenizer(pretrained_model_cfg, do_lower_case=do_lower_case)
     if special_tokens:
@@ -299,31 +308,26 @@ class BertTensorizer(Tensorizer):
         title: str = None,
         add_special_tokens: bool = True,
         apply_max_len: bool = True,
-        return_offsets = False
+        title_concat_str = " ", # can also be [SEP]
+        return_offsets = False,
+        return_text = False
+        # fixme add title_concat_str, return_offsets, and return_text to parent class?
     ):
         text = text.strip()
         # tokenizer automatic padding is explicitly disabled since its inconsistent behavior
         # TODO: move max len to methods params?
 
         if title:
-            encodings = self.tokenizer.encode_plus(
-                title,
-                text_pair=text,
-                add_special_tokens=add_special_tokens,
-                max_length=self.max_length if apply_max_len else 10000,
-                pad_to_max_length=False,
-                truncation=True,
-                return_offsets_mapping=True,
-            )
-        else:
-            encodings = self.tokenizer.encode_plus(
-                text,
-                add_special_tokens=add_special_tokens,
-                max_length=self.max_length if apply_max_len else 10000,
-                pad_to_max_length=False,
-                truncation=True,
-                return_offsets_mapping=True,
-            )
+            text = title + title_concat_str + text
+
+        encodings = self.tokenizer.encode_plus(
+            text,
+            add_special_tokens=add_special_tokens,
+            max_length=self.max_length if apply_max_len else 10000,
+            pad_to_max_length=False,
+            truncation=True,
+            return_offsets_mapping=True,
+        )
         token_ids = encodings.data["input_ids"]
         seq_len = self.max_length
         if self.pad_to_max and len(token_ids) < seq_len:
@@ -331,15 +335,19 @@ class BertTensorizer(Tensorizer):
         if len(token_ids) >= seq_len:
             token_ids = token_ids[0:seq_len] if apply_max_len else token_ids
             token_ids[-1] = self.tokenizer.sep_token_id
+        return_value = torch.tensor(token_ids) if not(return_offsets or return_text) \
+            else {"ids": torch.tensor(token_ids)}
 
         if return_offsets:
-            offsets = np.zeros(len(text), dtype=np.int8)
+            offsets = np.zeros(len(text), dtype=np.int16)
             for token_idx, pos in enumerate(encodings['offset_mapping']):
                 if token_idx < 1:
                     continue
                 offsets[pos[0]:pos[1]] = token_idx
-            return torch.tensor(token_ids), offsets
-        return torch.tensor(token_ids)
+            return_value["offsets"] =  offsets
+        if return_text:
+            return_value["text"] = text
+        return return_value
 
     def get_pair_separator_ids(self) -> T:
         return torch.tensor([self.tokenizer.sep_token_id])

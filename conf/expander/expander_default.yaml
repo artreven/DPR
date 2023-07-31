@@ -1,0 +1,5 @@
+# expander type. One of [EntSuffixPosOnTopEntityExpander, EntSuffixPosAfterEntityExpander, EntInlineEntityExpander]
+expander_type : EntSuffixPosOnTopEntityExpander
+params:
+  # string that dictates how the concepts are inserted in the context, concept needs to be represented as "{s}", e.g. "({s})" will put parentheses around the concept.
+  concept_str_transform : "{s}"

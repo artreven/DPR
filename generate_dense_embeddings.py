@@ -23,6 +23,8 @@ from omegaconf import DictConfig, OmegaConf
 from torch import nn
 
 from dpr.data.biencoder_data import BiEncoderPassage
+from dpr.knowledge_infusion.expanders import AbstractEntityExpander
+from dpr.knowledge_infusion.extractors import AbstractEntityExtractor
 from dpr.models import init_biencoder_components
 from dpr.options import set_cfg_params_from_state, setup_cfg_gpu, setup_logger
 
@@ -43,23 +45,54 @@ def gen_ctx_vectors(
     ctx_rows: List[Tuple[object, BiEncoderPassage]],
     model: nn.Module,
     tensorizer: Tensorizer,
+    extractor: AbstractEntityExtractor = None,
+    expander: AbstractEntityExpander = None,
     insert_title: bool = True,
 ) -> List[Tuple[object, np.array]]:
     n = len(ctx_rows)
     bsz = cfg.batch_size
     total = 0
     results = []
+    additional_tens_ttt_parameter = {}
+    if extractor is not None:
+        additional_tens_ttt_parameter["return_offsets"] = True
+        additional_tens_ttt_parameter["return_text"] = True
+        additional_tens_ttt_parameter["title_concat_str"] = " "
     for j, batch_start in enumerate(range(0, n, bsz)):
         batch = ctx_rows[batch_start : batch_start + bsz]
-        batch_token_tensors = [
-            tensorizer.text_to_tensor(ctx[1].text, title=ctx[1].title if insert_title else None) for ctx in batch
-        ]
 
-        ctx_ids_batch = move_to_device(torch.stack(batch_token_tensors, dim=0), cfg.device)
+        batch_token_tensors = []
+        batch_offset_tensors = []
+
+        for ctx in batch:
+            output = tensorizer.text_to_tensor(ctx[1].text,
+                                               title=ctx[1].title if (insert_title and ctx[1].title) else None,
+                                          **additional_tens_ttt_parameter)
+
+            if extractor is not None:
+                assert (isinstance(output, dict))
+                tensor = output['ids']
+                offsets = output['offsets']
+                ctx_text = output["text"]
+                concepts = extractor.extract_no_overlap(ctx_text)
+
+                exp_tensor, positions = expander(token_tensor=tensor,
+                                             tensorizer=tensorizer,
+                                             offset_map=offsets,
+                                             concepts=concepts)
+                batch_token_tensors.append(exp_tensor)
+                batch_offset_tensors.append(torch.squeeze(positions))
+            else:
+                batch_token_tensors = output
+
+        ctx_ids_batch = move_to_device(tensorizer.pad_tensor_list(batch_token_tensors), cfg.device)
         ctx_seg_batch = move_to_device(torch.zeros_like(ctx_ids_batch), cfg.device)
-        ctx_attn_mask = move_to_device(tensorizer.get_attn_mask(ctx_ids_batch), cfg.device)
+        ctx_attn_mask = move_to_device(tensorizer.get_attn_mask(ctx_ids_batch) , cfg.device)
+        ctx_pos_batch = move_to_device(tensorizer.pad_tensor_list(batch_offset_tensors) , cfg.device) if extractor is not None else None
+
+        additional_model_params = {"position_ids" : ctx_pos_batch} if ctx_pos_batch is not None else {}
         with torch.no_grad():
-            _, out, _ = model(ctx_ids_batch, ctx_seg_batch, ctx_attn_mask)
+            _, out, _ = model(ctx_ids_batch, ctx_seg_batch, ctx_attn_mask, **additional_model_params)
         out = out.cpu()
 
         ctx_ids = [r[0] for r in batch]
@@ -94,9 +127,12 @@ def main(cfg: DictConfig):
 
     logger.info("CFG:")
     logger.info("%s", OmegaConf.to_yaml(cfg))
-
     tensorizer, encoder, _ = init_biencoder_components(cfg.encoder.encoder_model_type, cfg, inference_only=True)
 
+    extractor = encoder.extractor if hasattr(encoder, "extractor") else None
+    extractor = extractor if cfg.use_concepts else None
+    expander = encoder.expander if hasattr(encoder, "expander") else None
+    expander = expander if cfg.use_concepts else None
     encoder = encoder.ctx_model if cfg.encoder_type == "ctx" else encoder.question_model
 
     encoder, _ = setup_for_distributed_mode(
@@ -140,7 +176,7 @@ def main(cfg: DictConfig):
     )
     shard_passages = all_passages[start_idx:end_idx]
 
-    data = gen_ctx_vectors(cfg, shard_passages, encoder, tensorizer, True)
+    data = gen_ctx_vectors(cfg, shard_passages, encoder, tensorizer, extractor, expander, cfg.insert_title)
 
     file = cfg.out_file + "_" + str(cfg.shard_id)
     pathlib.Path(os.path.dirname(file)).mkdir(parents=True, exist_ok=True)

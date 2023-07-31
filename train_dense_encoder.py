@@ -250,7 +250,7 @@ class BiEncoderTrainer(object):
             biencoder_input = biencoder.create_biencoder_input(
                 samples_batch,
                 self.tensorizer,
-                True,
+                cfg.add_title,
                 num_hard_negatives,
                 num_other_negatives,
                 shuffle=False,
@@ -340,7 +340,7 @@ class BiEncoderTrainer(object):
             biencoder_input = biencoder.create_biencoder_input(
                 samples_batch,
                 self.tensorizer,
-                True,
+                cfg.add_title,
                 num_hard_negatives,
                 num_other_negatives,
                 shuffle=False,
@@ -480,7 +480,7 @@ class BiEncoderTrainer(object):
             biencoder_batch = biencoder.create_biencoder_input(
                 samples_batch,
                 self.tensorizer,
-                True,
+                cfg.add_title,
                 num_hard_negatives,
                 num_other_negatives,
                 shuffle=True,

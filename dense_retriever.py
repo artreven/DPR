@@ -24,6 +24,8 @@ from omegaconf import DictConfig, OmegaConf
 from torch import Tensor as T
 from torch import nn
 
+from dpr.knowledge_infusion.expanders import AbstractEntityExpander
+from dpr.knowledge_infusion.extractors import AbstractEntityExtractor
 from dpr.utils.data_utils import RepTokenSelector
 from dpr.data.qa_validation import calculate_matches, calculate_chunked_matches, calculate_matches_from_meta
 from dpr.data.retriever_data import KiltCsvCtxSrc, TableChunk
@@ -46,14 +48,22 @@ setup_logger(logger)
 def generate_question_vectors(
     question_encoder: torch.nn.Module,
     tensorizer: Tensorizer,
+    extractor: AbstractEntityExtractor,
+    expander: AbstractEntityExpander,
     questions: List[str],
     bsz: int,
     query_token: str = None,
     selector: RepTokenSelector = None,
-    #fixme add extractor
 ) -> T:
     n = len(questions)
     query_vectors = []
+
+    additional_tens_ttt_parameter = {}
+    if extractor is not None:
+        additional_tens_ttt_parameter["return_offsets"] = True
+        additional_tens_ttt_parameter["return_text"] = True
+        additional_tens_ttt_parameter["title_concat_str"] = " "
+
 
     with torch.no_grad():
         for j, batch_start in enumerate(range(0, n, bsz)):
@@ -70,8 +80,26 @@ def generate_question_vectors(
             elif isinstance(batch_questions[0], T):
                 batch_tensors = [q for q in batch_questions]
             else:
-                batch_tensors = [tensorizer.text_to_tensor(q) for q in batch_questions]
-            #fixme generate positions with extractor
+                batch_tensors = []
+                batch_positions = []
+                for q in batch_questions:
+                    q = q.replace("/", " ")
+                    output = tensorizer.text_to_tensor(q.lower(), **additional_tens_ttt_parameter)
+                    #fixme not a nice place to put this functionality, also duplicated in hf_models.get_bert_biencoder_components
+                    if extractor is not None:
+                        assert (isinstance(output, dict))
+                        tensor = output['ids']
+                        offsets = output['offsets']
+                        question = output["text"]
+                        concepts = extractor.extract_no_overlap(question)
+                        exp_tensor, positions = expander(token_tensor=tensor,
+                                                          tensorizer=tensorizer,
+                                                          offset_map=offsets,
+                                                          concepts=concepts)
+                        batch_tensors.append(exp_tensor)
+                        batch_positions.append(torch.squeeze(positions))
+                    else:
+                        batch_tensors.append(output)
 
             # TODO: this only works for Wav2vec pipeline but will crash the regular text pipeline
             # max_vector_len = max(q_t.size(1) for q_t in batch_tensors)
@@ -82,10 +110,14 @@ def generate_question_vectors(
                 # from dpr.models.reader import _pad_to_len
                 # batch_tensors = [_pad_to_len(q.squeeze(0), 0, max_vector_len) for q in batch_tensors]
 
-            q_ids_batch = torch.stack(batch_tensors, dim=0).cuda()
-            q_seg_batch = torch.zeros_like(q_ids_batch).cuda()
+            q_ids_batch = tensorizer.pad_tensor_list(batch_tensors)
+            q_seg_batch = torch.zeros_like(q_ids_batch)
             q_attn_mask = tensorizer.get_attn_mask(q_ids_batch)
-            #fixme generate position embeddings batch?
+            q_pos_batch = tensorizer.pad_tensor_list(batch_positions) if extractor is not None else None
+            if torch.cuda.is_available():
+                q_ids_batch = q_ids_batch.cuda()
+                q_seg_batch = q_seg_batch.cuda()
+                q_pos_batch = q_pos_batch.cuda()
 
             if selector:
                 rep_positions = selector.get_positions(q_ids_batch, tensorizer)
@@ -95,11 +127,11 @@ def generate_question_vectors(
                     q_ids_batch,
                     q_seg_batch,
                     q_attn_mask,
-                    #fixme provide position embeddings batch
+                    position_ids=q_pos_batch,
                     representation_token_pos=rep_positions,
                 )
             else:
-                _, out, _ = question_encoder(q_ids_batch, q_seg_batch, q_attn_mask)
+                _, out, _ = question_encoder(q_ids_batch, q_seg_batch, q_attn_mask, position_ids=q_pos_batch)
 
             query_vectors.extend(out.cpu().split(1, dim=0))
 
@@ -113,12 +145,21 @@ def generate_question_vectors(
 
 
 class DenseRetriever(object):
-    def __init__(self, question_encoder: nn.Module, batch_size: int, tensorizer: Tensorizer):
-        #fixme add extractor
+    def __init__(self,
+                 question_encoder: nn.Module,
+                 batch_size: int,
+                 tensorizer: Tensorizer,
+                 extractor: AbstractEntityExtractor=None,
+                 expander:AbstractEntityExpander=None):
         self.question_encoder = question_encoder
         self.batch_size = batch_size
         self.tensorizer = tensorizer
         self.selector = None
+        self.extractor = extractor
+        self.expander = expander
+        if self.extractor is not None and self.expander is None:
+            logger.error('For integrating concepts, both extractor and expander must be provided. '
+                         'Otherwise, both should be None')
 
     def generate_question_vectors(self, questions: List[str], query_token: str = None) -> T:
 
@@ -127,9 +168,10 @@ class DenseRetriever(object):
         return generate_question_vectors(
             self.question_encoder,
             self.tensorizer,
+            self.extractor,
+            self.expander,
             questions,
             bsz,
-            #fixme add extractor
             query_token=query_token,
             selector=self.selector,
         )
@@ -146,8 +188,10 @@ class LocalFaissRetriever(DenseRetriever):
         batch_size: int,
         tensorizer: Tensorizer,
         index: DenseIndexer,
+        extractor: AbstractEntityExtractor = None,
+        expander: AbstractEntityExpander = None
     ):
-        super().__init__(question_encoder, batch_size, tensorizer)
+        super().__init__(question_encoder, batch_size, tensorizer, extractor, expander)
         self.index = index
 
     def index_encoded_data(
@@ -194,12 +238,14 @@ class DenseRPCRetriever(DenseRetriever):
         tensorizer: Tensorizer,
         index_cfg_path: str,
         dim: int,
+        extractor: AbstractEntityExtractor = None,
+        expander: AbstractEntityExpander = None,
         use_l2_conversion: bool = False,
         nprobe: int = 256,
     ):
         from distributed_faiss.client import IndexClient
 
-        super().__init__(question_encoder, batch_size, tensorizer)
+        super().__init__(question_encoder, batch_size, tensorizer, extractor, expander)
         self.dim = dim
         self.index_id = "dr"
         self.nprobe = nprobe
@@ -478,6 +524,8 @@ def get_all_passages(ctx_sources):
 @hydra.main(config_path="conf", config_name="dense_retriever")
 def main(cfg: DictConfig):
     cfg = setup_cfg_gpu(cfg)
+    if cfg.model_file is None:
+        raise ValueError("No model file provided.")
     saved_state = load_states_from_checkpoint(cfg.model_file)
 
     set_cfg_params_from_state(saved_state.encoder_params, cfg)
@@ -486,6 +534,10 @@ def main(cfg: DictConfig):
     logger.info("%s", OmegaConf.to_yaml(cfg))
 
     tensorizer, encoder, _ = init_biencoder_components(cfg.encoder.encoder_model_type, cfg, inference_only=True)
+    extractor = encoder.extractor if hasattr(encoder, "extractor") else None
+    extractor = extractor if cfg.use_concepts else None
+    expander = encoder.expander if hasattr(encoder, "expander") else None
+    expander = expander if cfg.use_concepts else None
 
     logger.info("Loading saved model state ...")
     encoder.load_state(saved_state, strict=False)
@@ -538,6 +590,8 @@ def main(cfg: DictConfig):
             tensorizer,
             cfg.rpc_retriever_cfg_file,
             vector_size,
+            extractor=extractor,
+            expander=expander,
             use_l2_conversion=cfg.use_l2_conversion,
         )
     else:
@@ -545,7 +599,7 @@ def main(cfg: DictConfig):
         logger.info("Local Index class %s ", type(index))
         index_buffer_sz = index.buffer_size
         index.init_index(vector_size)
-        retriever = LocalFaissRetriever(encoder, cfg.batch_size, tensorizer, index)
+        retriever = LocalFaissRetriever(encoder, cfg.batch_size, tensorizer, index, extractor=extractor, expander=expander)
 
     logger.info("Using special token %s", qa_src.special_query_token)
     questions_tensor = retriever.generate_question_vectors(questions, query_token=qa_src.special_query_token)
