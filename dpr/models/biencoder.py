@@ -167,6 +167,7 @@ class BiEncoder(nn.Module):
         samples: List[BiEncoderSample],
         tensorizer: Tensorizer,
         insert_title: bool,
+        title_concat_str : str,
         num_hard_negatives: int = 0,
         num_other_negatives: int = 0,
         shuffle: bool = True,
@@ -196,7 +197,7 @@ class BiEncoder(nn.Module):
         if use_concepts:
             additional_tens_ttt_parameter["return_offsets"] = True
             additional_tens_ttt_parameter["return_text"] = True
-            additional_tens_ttt_parameter["title_concat_str"] = " "
+            additional_tens_ttt_parameter["title_concat_str"] = title_concat_str
 
         for sample in samples:
             # ctx+ & [ctx-] composition

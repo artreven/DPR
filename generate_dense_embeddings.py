@@ -47,7 +47,6 @@ def gen_ctx_vectors(
     tensorizer: Tensorizer,
     extractor: AbstractEntityExtractor = None,
     expander: AbstractEntityExpander = None,
-    insert_title: bool = True,
 ) -> List[Tuple[object, np.array]]:
     n = len(ctx_rows)
     bsz = cfg.batch_size
@@ -57,7 +56,7 @@ def gen_ctx_vectors(
     if extractor is not None:
         additional_tens_ttt_parameter["return_offsets"] = True
         additional_tens_ttt_parameter["return_text"] = True
-        additional_tens_ttt_parameter["title_concat_str"] = " "
+        additional_tens_ttt_parameter["title_concat_str"] = cfg.title_concat_string
     for j, batch_start in enumerate(range(0, n, bsz)):
         batch = ctx_rows[batch_start : batch_start + bsz]
 
@@ -66,7 +65,7 @@ def gen_ctx_vectors(
 
         for ctx in batch:
             output = tensorizer.text_to_tensor(ctx[1].text,
-                                               title=ctx[1].title if (insert_title and ctx[1].title) else None,
+                                               title=ctx[1].title if (cfg.insert_title and ctx[1].title) else None,
                                           **additional_tens_ttt_parameter)
 
             if extractor is not None:
@@ -176,7 +175,7 @@ def main(cfg: DictConfig):
     )
     shard_passages = all_passages[start_idx:end_idx]
 
-    data = gen_ctx_vectors(cfg, shard_passages, encoder, tensorizer, extractor, expander, cfg.insert_title)
+    data = gen_ctx_vectors(cfg, shard_passages, encoder, tensorizer, extractor, expander)
 
     file = cfg.out_file + "_" + str(cfg.shard_id)
     pathlib.Path(os.path.dirname(file)).mkdir(parents=True, exist_ok=True)
