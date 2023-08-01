@@ -83,7 +83,7 @@ def gen_ctx_vectors(
                 batch_token_tensors.append(exp_tensor)
                 batch_offset_tensors.append(torch.squeeze(positions))
             else:
-                batch_token_tensors = output
+                batch_token_tensors.append(output)
 
         ctx_ids_batch = move_to_device(tensorizer.pad_tensor_list(batch_token_tensors), cfg.device)
         ctx_seg_batch = move_to_device(torch.zeros_like(ctx_ids_batch), cfg.device)
