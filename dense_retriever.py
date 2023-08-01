@@ -118,6 +118,8 @@ def generate_question_vectors(
                 q_ids_batch = q_ids_batch.cuda()
                 q_seg_batch = q_seg_batch.cuda()
                 q_pos_batch = q_pos_batch.cuda()
+                if extractor is not None:
+                     q_pos_batch = q_pos_batch.cuda()
 
             if selector:
                 rep_positions = selector.get_positions(q_ids_batch, tensorizer)
