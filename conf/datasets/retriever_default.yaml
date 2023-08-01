@@ -48,3 +48,27 @@ pphelp_test_601:
 pphelp_test_602:
   _target_: dpr.data.retriever_data.CsvQASrc
   file: /content/drive/MyDrive/DPR/data/pp_help/version1/train60_dev10_test30/dpr_pphelp_test_2.tsv
+
+pphelp_test_500:
+  _target_: dpr.data.retriever_data.CsvQASrc
+  file: /content/drive/MyDrive/DPR/data/pp_help/version1/train50_dev10_test40/dpr_pphelp_test_0.tsv
+
+pphelp_test_501:
+  _target_: dpr.data.retriever_data.CsvQASrc
+  file: /content/drive/MyDrive/DPR/data/pp_help/version1/train50_dev10_test40/dpr_pphelp_test_1.tsv
+
+pphelp_test_502:
+  _target_: dpr.data.retriever_data.CsvQASrc
+  file: /content/drive/MyDrive/DPR/data/pp_help/version1/train50_dev10_test40/dpr_pphelp_test_2.tsv
+
+pphelp_test_400:
+  _target_: dpr.data.retriever_data.CsvQASrc
+  file: /content/drive/MyDrive/DPR/data/pp_help/version1/train40_dev10_test50/dpr_pphelp_test_0.tsv
+
+pphelp_test_401:
+  _target_: dpr.data.retriever_data.CsvQASrc
+  file: /content/drive/MyDrive/DPR/data/pp_help/version1/train40_dev10_test50/dpr_pphelp_test_1.tsv
+
+pphelp_test_402:
+  _target_: dpr.data.retriever_data.CsvQASrc
+  file: /content/drive/MyDrive/DPR/data/pp_help/version1/train40_dev10_test50/dpr_pphelp_test_2.tsv
