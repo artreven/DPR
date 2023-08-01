@@ -37,3 +37,14 @@ pphelp_test:
   _target_: dpr.data.retriever_data.CsvQASrc
   file: /content/drive/MyDrive/DPR/data/dpr_pphelp_test.tsv
 
+pphelp_test_600:
+  _target_: dpr.data.retriever_data.CsvQASrc
+  file: /content/drive/MyDrive/DPR/data/pp_help/version1/train60_dev10_test30/dpr_pphelp_test_0.tsv
+
+pphelp_test_601:
+  _target_: dpr.data.retriever_data.CsvQASrc
+  file: /content/drive/MyDrive/DPR/data/pp_help/version1/train60_dev10_test30/dpr_pphelp_test_1.tsv
+
+pphelp_test_602:
+  _target_: dpr.data.retriever_data.CsvQASrc
+  file: /content/drive/MyDrive/DPR/data/pp_help/version1/train60_dev10_test30/dpr_pphelp_test_2.tsv
