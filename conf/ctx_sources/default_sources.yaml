@@ -7,5 +7,5 @@ dpr_wiki:
   
 dpr_pphelp:
   _target_: dpr.data.retriever_data.CsvCtxSrc
-  file: /content/DPR/data/dpr_pphelp_ascii.tsv
+  file: /content/drive/MyDrive/DPR/data/pp_help/version1/drp_pphelp_docs.tsv
   id_prefix: 'pphelp:'
