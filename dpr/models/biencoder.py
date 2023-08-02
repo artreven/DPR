@@ -272,7 +272,7 @@ class BiEncoder(nn.Module):
                     question_tensors.append(query_span)
                 else:
                     output = tensorizer.text_to_tensor(" ".join([query_token, question]), **additional_tens_ttt_parameter)
-                    if isinstance(output, tuple):
+                    if isinstance(output, dict):
                         tensor, offsets = output
                         question_tensors.append(tensor)
                         question_offsets.append(offsets)
