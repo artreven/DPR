@@ -117,7 +117,6 @@ def generate_question_vectors(
                 q_ids_batch = q_ids_batch.cuda()
                 q_seg_batch = q_seg_batch.cuda()
                 q_attn_mask = q_attn_mask.cuda()
-                q_pos_batch = q_pos_batch.cuda()
                 if extractor is not None:
                      q_pos_batch = q_pos_batch.cuda()
 
