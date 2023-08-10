@@ -376,6 +376,7 @@ class BiEncoderTrainer(object):
 
                 ctx_ids_batch = ctxs_ids[batch_start : batch_start + sub_batch_size]
                 ctx_seg_batch = ctxs_segments[batch_start : batch_start + sub_batch_size]
+                ctx_pos_batch = ctxs_positions[batch_start : batch_start + sub_batch_size]
 
                 q_attn_mask = self.tensorizer.get_attn_mask(q_ids)
                 ctx_attn_mask = self.tensorizer.get_attn_mask(ctx_ids_batch)
@@ -388,7 +389,7 @@ class BiEncoderTrainer(object):
                         ctx_ids_batch,
                         ctx_seg_batch,
                         ctx_attn_mask,
-                        ctxs_positions,
+                        ctx_pos_batch,
                         encoder_type=encoder_type,
                         representation_token_pos=rep_positions,
                     )
