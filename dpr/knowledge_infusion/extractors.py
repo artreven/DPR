@@ -33,7 +33,7 @@ class AbstractEntityExtractor(ABC):
     @abstractmethod
     def extract_no_overlap(self,
                            text: str,
-                           **params) -> Dict[str, List[Tuple[int, int]]]:
+                           **params) -> Dict[str, List[Tuple[int, int, Dict]]]:
         """
         Finds entities in a text, without allowing multiple matches for a
         given offset.
@@ -96,16 +96,17 @@ class PoolPartyExtractor(AbstractEntityExtractor):
         super().__init__(**kwargs)
 
     def _create_match_list(self,
-                           concept_matches: List[ConceptMatch]
-                           ):
+                           concept_matches: List[ConceptMatch],
+                           add_additional_info: bool = True
+                           ) -> Dict[str, List[Tuple[int, int, Dict]]]:
         """
 
         :param concept_matches:
         :return: a dictionary whose keys are concepts and whose values are
-        lists of pairs of start,end offsets. E.g.
+        dictionaries of lists of dictionaries of start,end offsets and potential more info. E.g.
         {
-         "cpt1":[(1,5),(21,25)],
-         "cpt2":[(7,10),(37,49)]
+         "cpt1":[{match_start:1,match_end:5},{match_start:21,match_end:25}],
+         "cpt2":[{match_start:7,match_end:10},{match_start:37,match_end:49}]
         }
         """
         if len(concept_matches)==0:
@@ -114,21 +115,26 @@ class PoolPartyExtractor(AbstractEntityExtractor):
         hitmap = np.zeros(maxend+100)
         result = dict()
         for cm in concept_matches:
+            cm = cm.__dict__
             if self.use_uris:
-                cpt = cm.cpt_id
+                cpt = cm["cpt_id"]
             elif self.cpt_id_type == "prefLabel":
-                cpt = cm.cpt_prefLabel
+                cpt = cm["cpt_prefLabel"]
             elif self.cpt_id_type == "broaderLabel":
-                cpt = cm.cpt_broaderLabel
+                cpt = cm["cpt_broaderLabel"]
             else:
                 raise ValueError(f"{self.cpt_id_type} is not a valid cpt_id_type")
-            beg = cm.match_start
-            end = cm.match_end
+            # ensure no overlap
+            beg = cm.pop("match_start")
+            end = cm.pop("match_end")
             hitmap[beg:end+1] += 1
             if hitmap[beg:end+1].max() > 1:
                 continue
+            additional_info = {}
+            if add_additional_info:
+                additional_info = cm
             thiscpt = result.get(cpt, [])
-            thiscpt.append((beg, end))
+            thiscpt.append((beg, end, additional_info))
             result[cpt] = thiscpt
         return result
 
@@ -280,9 +286,11 @@ class PoolPartyExtractor(AbstractEntityExtractor):
                            ppid: Optional[str] = None,
                            lang: Optional[str] = None,
                            force_extraction=False,
-                           **params) -> Dict[str, List[Tuple[int, int]]]:
+                           return_additional_info=False,
+                           **params) -> Dict[str, List[Tuple[int, int, Dict]]]:
         """
 
+        :param return_additional_info:
         :param text: The text to extract
         :param ppid: Project ID, if None, the extractors default is used
         :param lang: Language of the text, if None, the extractors default

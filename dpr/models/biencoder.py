@@ -241,10 +241,10 @@ class BiEncoder(nn.Module):
                     offsets = output["offsets"]
                     ctx_text = output["text"]
                     concepts = self.extractor.extract_no_overlap(ctx_text)
-                    tensor, positions = self.expander(token_tensor = tensor,
-                                                      tensorizer = tensorizer,
-                                                      offset_map=offsets,
-                                                      concepts=concepts)
+                    tensor, positions, added_concepts = self.expander(token_tensor=tensor,
+                                                                      tensorizer=tensorizer,
+                                                                      offset_map=offsets,
+                                                                      concepts=concepts)
 
                     ctx_tensors.append(tensor)
                     ctx_offsets.append(torch.squeeze(positions))
@@ -286,10 +286,10 @@ class BiEncoder(nn.Module):
                     offsets = output["offsets"]
                     question = output["text"]
                     concepts = self.extractor.extract_no_overlap(question)
-                    tensor, positions = self.expander(token_tensor=tensor,
-                                                      tensorizer=tensorizer,
-                                                      offset_map=offsets,
-                                                      concepts=concepts)
+                    tensor, positions, add_expander_info = self.expander(token_tensor=tensor,
+                                                                         tensorizer=tensorizer,
+                                                                         offset_map=offsets,
+                                                                         concepts=concepts)
                     question_tensors.append(tensor)
                     question_offsets.append(torch.squeeze(positions))
                 else:

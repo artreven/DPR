@@ -1,3 +1,4 @@
+import dataclasses
 import logging
 from collections import defaultdict
 from typing import Dict, List, Tuple
@@ -14,6 +15,15 @@ r_logger = logging.getLogger("root")
 r_logger.setLevel(logging.ERROR)
 
 
+@dataclasses.dataclass
+class ExpansionObject:
+    surface_form: str
+    start_idx: int
+    end_idx: int
+    token_len: int
+    additional_info: dict
+
+
 class AbstractEntityExpander:
     def __init__(self, concept_str_transform: str):
         """
@@ -25,8 +35,11 @@ class AbstractEntityExpander:
         self.ent2toktensor = dict()
 
 
-
-    def expand_concepts(self, all_matches, ids_tensor, pos_tensor, tensorizer, offset_map):
+    def expand_concepts(self, all_matches: List[ExpansionObject],
+                        ids_tensor: T,
+                        pos_tensor: T,
+                        tensorizer,
+                        offset_map) -> (T, T, List[ExpansionObject]):
         raise NotImplementedError
 
 
@@ -45,10 +58,10 @@ class AbstractEntityExpander:
                  token_tensor: T,
                  tensorizer: Tensorizer,
                  offset_map: np.ndarray,
-                 concepts: Dict[str, List[Tuple[int, int]]],
+                 concepts: Dict[str, List[Tuple[int, int, Dict]]],
                  force_concepts=0,
                  *args,
-                 **kwargs):
+                 **kwargs) -> (T, T, List):
 
         default_pos_ids = torch.arange(tensorizer.max_length).expand((1, -1))
         pos_tensor = default_pos_ids[:offset_map.max()]
@@ -59,16 +72,20 @@ class AbstractEntityExpander:
 
         if len(concepts) == 0:
             logger.warning(f"No concepts for this document {tensorizer.to_string(token_tensor)[:40]}")
-            return token_tensor, pos_tensor
+            return token_tensor, pos_tensor, []
 
         # sort matches by start offset
         all_matches = []
         for ent, matches in concepts.items():
             trans_ent = self.concept_str_transform.format(s=ent)
-            for start_end in matches:
-                ent_ids_len = len(self.ent_encoder(trans_ent, tensorizer))
-                all_matches.append((trans_ent, start_end, ent_ids_len))
-        all_matches.sort(key=lambda x: x[1][0])
+            for start_end_info in matches:
+                exp_obj = ExpansionObject(surface_form=trans_ent,
+                                          start_idx=start_end_info[0],
+                                          end_idx=start_end_info[1],
+                                          token_len=len(self.ent_encoder(trans_ent, tensorizer)),
+                                          additional_info=start_end_info[2])
+                all_matches.append(exp_obj)
+        all_matches.sort(key=lambda x: x.start_idx)
 
         # trimming by removing anything after the SEP
         sep_idx = token_tensor[-1]
@@ -84,17 +101,17 @@ class AbstractEntityExpander:
         # further (right-sided) trimming for forced concept inclusion
         matches_to_force = min([force_concepts, len(all_matches)])
         if matches_to_force > 0:
-            forceable_ids_lens = [ent_ids_len for _, _, ent_ids_len in all_matches[:matches_to_force]]
+            forceable_ids_lens = [exp_obj.token_len for exp_obj in all_matches[:matches_to_force]]
             sizetotrim = sum(forceable_ids_lens)
             ids_tensor = ids_tensor[:-sizetotrim]
             pos_tensor = pos_tensor[:, :len(ids_tensor)]
 
         # adding concepts to tensors
-        ids_tensor, pos_tensor = self.expand_concepts(all_matches=all_matches,
-                                                      ids_tensor=ids_tensor,
-                                                      pos_tensor=pos_tensor,
-                                                      offset_map=offset_map,
-                                                      tensorizer=tensorizer)
+        ids_tensor, pos_tensor, added_matches = self.expand_concepts(all_matches=all_matches,
+                                                                     ids_tensor=ids_tensor,
+                                                                     pos_tensor=pos_tensor,
+                                                                     offset_map=offset_map,
+                                                                     tensorizer=tensorizer)
 
         # re-adding SEP token
         ids_tensor = torch.cat((ids_tensor, sep_idx.unsqueeze(0)), 0).long()
@@ -105,8 +122,8 @@ class AbstractEntityExpander:
                      f"ids_tensor: {ids_tensor.shape}\t<---end\n"
                      f"-------------------------------------")
         assert ids_tensor.shape[0] == pos_tensor.shape[1]
-
-        return ids_tensor, pos_tensor
+        # fixme add which concepts were added
+        return ids_tensor, pos_tensor, added_matches
 
 
 class EntSuffixPosOnTopEntityExpander(AbstractEntityExpander):
@@ -117,15 +134,16 @@ class EntSuffixPosOnTopEntityExpander(AbstractEntityExpander):
 
 
     def expand_concepts(self, all_matches, ids_tensor, pos_tensor, tensorizer, offset_map):
-        addedmatches = 0
-        for i, (ent, start_end, ent_ids_lens) in enumerate(all_matches):
-            ent_ids = self.ent_encoder(ent, tensorizer)
-            first_token_match = offset_map[start_end[0]]
+        addedmatches = []
+        # for i, (ent, start_end, ent_ids_lens) in enumerate(all_matches):
+        for i, exp_obj in enumerate(all_matches):
+            ent_ids = self.ent_encoder(exp_obj.surface_form, tensorizer)
+            first_token_match = offset_map[exp_obj.start_idx]
             ent_pos = T(range(first_token_match, first_token_match + len(ent_ids)))
             if (first_token_match < 1 or
                     ent_pos.max() > tensorizer.max_length - 1):
                 continue
-            if ids_tensor.shape[0] + ent_ids_lens > tensorizer.max_length:
+            if ids_tensor.shape[0] + exp_obj.token_len > tensorizer.max_length:
                 logging.warning(f"Ran of out of space to add matches "
                                 f"Only {addedmatches} were added"
                                 )
@@ -135,16 +153,17 @@ class EntSuffixPosOnTopEntityExpander(AbstractEntityExpander):
             ids_tensor = torch.cat((ids_tensor, ent_ids), 0)
             pos_tensor = torch.cat((pos_tensor, ent_pos), 1)
 
-            addedmatches += 1
-            logger.debug(f"{ent} |"
-                         f"charoffset: {start_end} "
+            addedmatches.append(exp_obj)
+            logger.debug(f"{exp_obj.surface_form} |"
+                         f"charoffset: {exp_obj.start_idx, exp_obj.end_idx} "
                          f"ids: {ent_ids} "
-                         f"tokenoffset: {offset_map[start_end[0]]}")
+                         f"tokenoffset: {offset_map[exp_obj.start_idx]}")
 
-        logger.debug(f"Added {addedmatches} concept "
+        logger.debug(f"Added {len(addedmatches)} concept "
                      f"matches, out of a total of {len(all_matches)} ")
 
-        return ids_tensor, pos_tensor
+        return ids_tensor, pos_tensor, addedmatches
+
 
 
 class EntSuffixPosAfterEntityExpander(AbstractEntityExpander):
@@ -155,11 +174,12 @@ class EntSuffixPosAfterEntityExpander(AbstractEntityExpander):
 
 
     def expand_concepts(self, all_matches, ids_tensor, pos_tensor, tensorizer, offset_map):
-        addedmatches = 0
-        for i, (ent, start_end, ent_ids_lens) in enumerate(all_matches):
-            ent_ids = self.ent_encoder(ent, tensorizer)
+        addedmatches = []
+        # for i, (ent, start_end, ent_ids_lens) in enumerate(all_matches):
+        for i, exp_obj in enumerate(all_matches):
+            ent_ids = self.ent_encoder(exp_obj.surface_form, tensorizer)
 
-            first_token_match = offset_map[start_end[1]] + 1
+            first_token_match = offset_map[exp_obj.end_idx] + 1
             ent_pos = T(range(first_token_match, first_token_match + len(ent_ids)))
             if (first_token_match < 1 or
                     ent_pos.max() > tensorizer.max_length - 1):
@@ -174,16 +194,16 @@ class EntSuffixPosAfterEntityExpander(AbstractEntityExpander):
             ids_tensor = torch.cat((ids_tensor, ent_ids), 0)
             pos_tensor = torch.cat((pos_tensor, ent_pos), 1)
 
-            addedmatches += 1
-            logger.debug(f"{ent} |"
-                         f"charoffset: {start_end} "
+            addedmatches.append(exp_obj)
+            logger.debug(f"{exp_obj.surface_form} |"
+                         f"charoffset: {exp_obj.start_idx, exp_obj.end_idx} "
                          f"ids: {ent_ids} "
-                         f"tokenoffset: {offset_map[start_end[0]]}")
+                         f"tokenoffset: {offset_map[exp_obj.start_idx]}")
 
-        logger.debug(f"Added {addedmatches} concept "
+        logger.debug(f"Added {len(addedmatches)} concept "
                      f"matches, out of a total of {len(all_matches)} ")
 
-        return ids_tensor, pos_tensor
+        return ids_tensor, pos_tensor, addedmatches
 
 
 class EntInlineEntityExpander(AbstractEntityExpander):
@@ -195,31 +215,32 @@ class EntInlineEntityExpander(AbstractEntityExpander):
 
     def expand_concepts(self, all_matches, ids_tensor, pos_tensor, tensorizer, offset_map):
         tokens_added = 0
-        addedmatches = 0
-        for i, (ent, start_end, ent_ids_lens) in enumerate(all_matches):  # important -> matches must be ordered!
-            ent_ids = self.ent_encoder(ent, tensorizer)
-            first_token_match = offset_map[start_end[1]] + 1
+        addedmatches = []
+        # for i, (ent, start_end, ent_ids_lens) in enumerate(all_matches):
+        for i, exp_obj in enumerate(all_matches):  # important -> matches must be ordered!
+            ent_ids = self.ent_encoder(exp_obj.surface_form, tensorizer)
+            first_token_match = offset_map[exp_obj.end_idx] + 1
             ent_pos = T(range(first_token_match, first_token_match + len(ent_ids)))
             if (first_token_match < 1 or
                     ent_pos.max() > tensorizer.max_length - 1):
                 continue
-            new_start = offset_map[start_end[1]] + 1 + tokens_added  # until end of the mention + new added tokens
-            new_end = offset_map[start_end[1]] + 1 + tokens_added  # from end of the mention + new added tokens
+            new_start = offset_map[exp_obj.end_idx] + 1 + tokens_added  # until end of the mention + new added tokens
+            new_end = offset_map[exp_obj.end_idx] + 1 + tokens_added  # from end of the mention + new added tokens
             ids_tensor = torch.cat((ids_tensor[:new_start],
                                     ent_ids,
                                     ids_tensor[new_end:]),
                                    0)
 
-            addedmatches += 1
-            tokens_added += ent_ids_lens
-            logger.debug(f"{ent} |"
-                         f"charoffset: {start_end} "
+            addedmatches.append(exp_obj)
+            tokens_added += exp_obj.token_len
+            logger.debug(f"{exp_obj.surface_form} |"
+                         f"charoffset: {exp_obj.start_idx, exp_obj.end_idx} "
                          f"ids: {ent_ids} "
-                         f"tokenoffset: {offset_map[start_end[0]]}")
+                         f"tokenoffset: {offset_map[exp_obj.start_idx]}")
 
-        logger.debug(f"Added {addedmatches} concept "
+        logger.debug(f"Added {len(addedmatches)} concept "
                      f"matches, out of a total of {len(all_matches)} ")
         # default positions
         pos_tensor = torch.arange(len(ids_tensor)).expand((1, -1))
 
-        return ids_tensor, pos_tensor
+        return ids_tensor, pos_tensor, addedmatches

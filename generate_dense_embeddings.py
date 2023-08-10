@@ -9,12 +9,13 @@
  Command line tool that produces embeddings for a large documents base based on the pretrained ctx & question encoders
  Supposed to be used in a 'sharded' way to speed up the process.
 """
+import json
 import logging
 import math
 import os
 import pathlib
 import pickle
-from typing import List, Tuple
+from typing import List, Tuple, Dict
 
 import hydra
 import numpy as np
@@ -47,7 +48,7 @@ def gen_ctx_vectors(
     tensorizer: Tensorizer,
     extractor: AbstractEntityExtractor = None,
     expander: AbstractEntityExpander = None,
-) -> List[Tuple[object, np.array]]:
+) -> List[Tuple[object, np.array, Dict]]:
     n = len(ctx_rows)
     bsz = cfg.batch_size
     total = 0
@@ -62,6 +63,7 @@ def gen_ctx_vectors(
 
         batch_token_tensors = []
         batch_offset_tensors = []
+        batch_add_info = []
 
         for ctx in batch:
             output = tensorizer.text_to_tensor(ctx[1].text,
@@ -75,12 +77,13 @@ def gen_ctx_vectors(
                 ctx_text = output["text"]
                 concepts = extractor.extract_no_overlap(ctx_text)
 
-                exp_tensor, positions = expander(token_tensor=tensor,
-                                             tensorizer=tensorizer,
-                                             offset_map=offsets,
-                                             concepts=concepts)
+                exp_tensor, positions, added_concepts = expander(token_tensor=tensor,
+                                                                 tensorizer=tensorizer,
+                                                                 offset_map=offsets,
+                                                                 concepts=concepts)
                 batch_token_tensors.append(exp_tensor)
                 batch_offset_tensors.append(torch.squeeze(positions))
+                batch_add_info.append(added_concepts)
             else:
                 batch_token_tensors.append(output)
 
@@ -96,17 +99,22 @@ def gen_ctx_vectors(
 
         ctx_ids = [r[0] for r in batch]
         extra_info = []
-        if len(batch[0]) > 3:
-            extra_info = [r[3:] for r in batch]
+        for i, b in enumerate(batch):
+            info_dict = {}
+            if len(b) > 3:
+                info_dict["extra"] = b[3:]
+            if expander is not None: # note: the expander output should always be the last entry
+                info_dict['expanded_text'] = tensorizer.to_string(batch_token_tensors[i])
+                info_dict['added_concepts'] = batch_add_info[i]
+            extra_info.append(info_dict)
 
         assert len(ctx_ids) == out.size(0)
         total += len(ctx_ids)
 
         # TODO: refactor to avoid 'if'
-        if extra_info:
-            results.extend([(ctx_ids[i], out[i].view(-1).numpy(), *extra_info[i]) for i in range(out.size(0))])
-        else:
-            results.extend([(ctx_ids[i], out[i].view(-1).numpy()) for i in range(out.size(0))])
+        batch_results = [(ctx_ids[i], out[i].view(-1).numpy(), extra_info[i]) for i in range(out.size(0))]
+
+        results.extend(batch_results)
 
         if total % 10 == 0:
             logger.info("Encoded passages %d", total)
@@ -182,6 +190,22 @@ def main(cfg: DictConfig):
     logger.info("Writing results to %s" % file)
     with open(file, mode="wb") as f:
         pickle.dump(data, f)
+
+    if expander is not None:
+        expanded_passages = [["id", "text", "title", "concepts", "expanded_text"]]
+        expanded_passages += [[ el[0],
+                                all_passages_dict[el[0]].text,
+                                all_passages_dict[el[0]].title,
+                                json.dumps([x.__dict__ for x in el[-1]['added_concepts']]),
+                                el[-1]['expanded_text'] ]
+                              for el in data]
+        file = ctx_src.file.split("/")
+        file[-1] ="expanded_" + file[-1]
+        file = "/".join(file)
+        pathlib.Path(os.path.dirname(file)).mkdir(parents=True, exist_ok=True)
+        logger.info("Writing expanded contexts to %s" % file)
+        with open(file, mode="w") as f:
+            f.write("\n".join(["\t".join(line) for line in expanded_passages]))
 
     logger.info("Total passages processed %d. Written to %s", len(data), file)
 
