@@ -15,7 +15,7 @@ from dpr.data.biencoder_data import (
     normalize_passage,
     get_dpr_files,
     read_nq_tables_jsonl,
-    split_tables_to_chunks,
+    split_tables_to_chunks, ExpandedBiEncoderPassage,
 )
 
 from dpr.utils.data_utils import normalize_question
@@ -359,3 +359,49 @@ class JsonlTablesCtxSrc(object):
             docs[sample_id] = TableChunk(chunk[1], chunk[2], chunk[3])
         logger.info("Loaded %d tables chunks", len(docs))
         ctxs.update(docs)
+
+
+class ExpandedCsvCtxSrc(RetrieverData):
+    def __init__(
+        self,
+        file: str,
+        id_col: int = 0,
+        text_col: int = 1,
+        title_col: int = 2,
+        added_cpts_col = 3,
+        exp_text_col = 4,
+        id_prefix: str = None,
+        normalize: bool = False,
+    ):
+        super().__init__(file)
+        self.text_col = text_col
+        self.title_col = title_col
+        self.id_col = id_col
+        self.added_cpts_col = added_cpts_col
+        self.exp_text_col = exp_text_col
+        self.id_prefix = id_prefix
+        self.normalize = normalize
+
+    def load_data_to(self, ctxs: Dict[object, ExpandedBiEncoderPassage]):
+        super().load_data()
+        logger.info("Reading file %s", self.file)
+        with open(self.file) as ifile:
+            reader = csv.reader(ifile, delimiter="\t")
+            for row in reader:
+                # for row in ifile:
+                # row = row.strip().split("\t")
+                if row[self.id_col] == "id":
+                    continue
+                if self.id_prefix:
+                    sample_id = self.id_prefix + str(row[self.id_col])
+                else:
+                    sample_id = row[self.id_col]
+                passage = row[self.text_col].strip('"')
+                if self.normalize:
+                    passage = normalize_passage(passage)
+                ctxs[sample_id] = ExpandedBiEncoderPassage(passage,
+                                                           row[self.title_col],
+                                                           row[self.added_cpts_col],
+                                                           row[self.exp_text_col]
+                                                           )
+

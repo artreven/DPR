@@ -14,6 +14,8 @@ from dpr.utils.data_utils import read_data_from_json_files, Dataset
 
 logger = logging.getLogger(__name__)
 BiEncoderPassage = collections.namedtuple("BiEncoderPassage", ["text", "title"])
+ExpandedBiEncoderPassage = collections.namedtuple("ExpandedBiEncoderPassage", ["text", "title", "concepts", "expanded_text"])
+
 
 
 def get_dpr_files(source_name) -> List[str]:

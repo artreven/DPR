@@ -15,7 +15,7 @@ import logging
 import pickle
 import time
 import zlib
-from typing import List, Tuple, Dict, Iterator
+from typing import List, Tuple, Dict, Iterator, Union
 
 import hydra
 import numpy as np
@@ -24,6 +24,7 @@ from omegaconf import DictConfig, OmegaConf
 from torch import Tensor as T
 from torch import nn
 
+from dpr.data.biencoder_data import ExpandedBiEncoderPassage
 from dpr.knowledge_infusion.expanders import AbstractEntityExpander
 from dpr.knowledge_infusion.extractors import AbstractEntityExtractor
 from dpr.utils.data_utils import RepTokenSelector
@@ -54,7 +55,9 @@ def generate_question_vectors(
     bsz: int,
     query_token: str = None,
     selector: RepTokenSelector = None,
-) -> T:
+    return_extra_info: bool = False
+) -> Union[T, Tuple[T, list]]:
+
     n = len(questions)
     query_vectors = []
 
@@ -81,6 +84,7 @@ def generate_question_vectors(
             else:
                 batch_tensors = []
                 batch_positions = []
+                batch_add_info = []
                 for q in batch_questions:
                     q = q.replace("/", " ")
                     output = tensorizer.text_to_tensor(q.lower(), **additional_tens_ttt_parameter)
@@ -91,12 +95,13 @@ def generate_question_vectors(
                         offsets = output['offsets']
                         question = output["text"]
                         concepts = extractor.extract_no_overlap(question)
-                        exp_tensor, positions = expander(token_tensor=tensor,
-                                                          tensorizer=tensorizer,
-                                                          offset_map=offsets,
-                                                          concepts=concepts)
+                        exp_tensor, positions, added_concepts = expander(token_tensor=tensor,
+                                                                         tensorizer=tensorizer,
+                                                                         offset_map=offsets,
+                                                                         concepts=concepts)
                         batch_tensors.append(exp_tensor)
                         batch_positions.append(torch.squeeze(positions))
+                        batch_add_info.append(added_concepts)
                     else:
                         batch_tensors.append(output)
 
@@ -142,6 +147,14 @@ def generate_question_vectors(
     query_tensor = torch.cat(query_vectors, dim=0)
     logger.info("Total encoded queries tensor %s", query_tensor.size())
     assert query_tensor.size(0) == len(questions)
+    if return_extra_info:
+        additional_info = []
+        for i, t in enumerate(batch_tensors):
+            info_dict = {}
+            info_dict['expanded_text'] = tensorizer.to_string(t)
+            info_dict['added_concepts'] = batch_add_info[i]
+            additional_info.append(info_dict)
+        return query_tensor, additional_info
     return query_tensor
 
 
@@ -162,7 +175,8 @@ class DenseRetriever(object):
             logger.error('For integrating concepts, both extractor and expander must be provided. '
                          'Otherwise, both should be None')
 
-    def generate_question_vectors(self, questions: List[str], query_token: str = None) -> T:
+    def generate_question_vectors(self, questions: List[str], query_token: str = None, return_extra_info: bool = False)\
+            -> Union[T, List[Dict]]:
 
         bsz = self.batch_size
         self.question_encoder.eval()
@@ -175,6 +189,7 @@ class DenseRetriever(object):
             bsz,
             query_token=query_token,
             selector=self.selector,
+            return_extra_info=return_extra_info
         )
 
 
@@ -394,6 +409,7 @@ def save_results(
     top_passages_and_scores: List[Tuple[List[object], List[float]]],
     per_question_hits: List[List[bool]],
     out_file: str,
+    questions_extra: dict = None
 ):
     # join passages text with the result ids, their questions and assigning has|no answer labels
     merged_data = []
@@ -406,24 +422,50 @@ def save_results(
         scores = [str(score) for score in results_and_scores[1]]
         ctxs_num = len(hits)
 
-        results_item = {
-            "question": q,
-            "answers": q_answers,
-            "ctxs": [
-                {
-                    "id": results_and_scores[0][c],
-                    "title": docs[c][1],
-                    "text": docs[c][0],
-                    "score": scores[c],
-                    "has_answer": hits[c],
-                }
-                for c in range(ctxs_num)
-            ],
-        }
+        if isinstance(docs[0], ExpandedBiEncoderPassage):
+            results_item = {
+                "question": q,
+                "answers": q_answers,
+                "ctxs": [
+                    {
+                        "id": results_and_scores[0][c],
+                        "title": docs[c][1],
+                        "text": docs[c][0],
+                        "expanded_text": docs[c][3],
+                        "added_concepts": json.loads(docs[c][2]),
+                        "score": scores[c],
+                        "has_answer": hits[c],
+                    }
+                    for c in range(ctxs_num)
+                ],
+            }
 
-        # if questions_extra_attr and questions_extra:
-        #    extra = questions_extra[i]
-        #    results_item[questions_extra_attr] = extra
+        else:
+
+            results_item = {
+                "question": q,
+                "answers": q_answers,
+                "ctxs": [
+                    {
+                        "id": results_and_scores[0][c],
+                        "title": docs[c][1],
+                        "text": docs[c][0],
+                        "score": scores[c],
+                        "has_answer": hits[c],
+                    }
+                    for c in range(ctxs_num)
+                ],
+            }
+
+        if  questions_extra is not None:
+            extra = {
+                k :
+                    v
+                    if not (isinstance(v, list) and len(v)>0 and hasattr(v[0], "__dict__"))
+                    else [el.__dict__ for el in v]
+                for k, v in questions_extra[i].items()
+            }
+            results_item["question_extra_info"] = extra
 
         merged_data.append(results_item)
 
@@ -603,8 +645,9 @@ def main(cfg: DictConfig):
         retriever = LocalFaissRetriever(encoder, cfg.batch_size, tensorizer, index, extractor=extractor, expander=expander)
 
     logger.info("Using special token %s", qa_src.special_query_token)
-    questions_tensor = retriever.generate_question_vectors(questions, query_token=qa_src.special_query_token)
-
+    questions_tensor, extra_info = retriever.generate_question_vectors(questions,
+                                                                           query_token=qa_src.special_query_token,
+                                                                           return_extra_info=True)
     if qa_src.selector:
         logger.info("Using custom representation token selector")
         retriever.selector = qa_src.selector
@@ -697,11 +740,12 @@ def main(cfg: DictConfig):
         if cfg.out_file:
             save_results(
                 all_passages,
-                questions_text if questions_text else questions,
+                questions,
                 question_answers,
                 top_results_and_scores,
                 questions_doc_hits,
                 cfg.out_file,
+                extra_info
             )
 
     if cfg.kilt_out_file:

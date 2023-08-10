@@ -14,3 +14,9 @@ dpr_pphelp_cleaned:
   _target_: dpr.data.retriever_data.CsvCtxSrc
   file: /content/drive/MyDrive/DPR/data/pp_help/version1/dpr_pphelp_docs_cleaned.tsv
   id_prefix: 'pphelp:'
+
+#no prefix should be provided, as this is already contained in the file
+dpr_pphelp_extended:
+  _target_: dpr.data.retriever_data.ExpandedCsvCtxSrc
+  file: /content/drive/MyDrive/DPR/data/pp_help/version1/expanded_drp_pphelp_docs.tsv
+  id_prefix: ''
